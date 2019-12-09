@@ -1,0 +1,134 @@
+
+
+rm -rf signer1/data/geth signer1/data/SN signer2/data/geth signer2/data/SN 
+
+signer3/data/geth signer3/data/SN signer4/data/geth signer4/data/SN 
+
+
+==================================================================
+
+geth --datadir signer1/data account new
+
+clear
+
+geth --datadir signer1/data init pow.json
+
+geth --datadir signer1/data --networkid 55661 --port 2002 --unlock ad85f4389de1d600a506e498d04323559562ad62 --password signer1/passwd.txt console
+
+===================================================================
+
+geth --datadir signer2/data account new
+
+clear
+
+geth --datadir signer2/data init pow.json
+
+geth --datadir signer2/data --networkid 55661 --port 2003 --unlock 3965c10a5bc55ea9fcef40a2e0b74912b4705076 --password signer2/passwd.txt console
+
+
+admin.addPeer("enode:")
+
+net.peerCount
+
+
+contract:
+
+abi = [{"constant":false,"inputs":[{"name":"valuesa","type":"uint256"},{"name":"cmts_a","type":"bytes32"}],"name":"Refund","outputs":[],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"H0","outputs":[{"name":"","type":"bytes32"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[],"name":"addressa","outputs":[{"name":"","type":"address"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"h0","type":"bytes32"},{"name":"amount","type":"uint256"},{"name":"n","type":"uint256"}],"name":"Commit","outputs":[],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"amounts","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[],"name":"addressb","outputs":[{"name":"","type":"address"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"hi","type":"bytes32"},{"name":"valuesb","type":"uint256"},{"name":"cmts_b","type":"bytes32"}],"name":"Claim","outputs":[],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"cmts_B","outputs":[{"name":"","type":"bytes32"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[],"name":"N","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[],"name":"cmts_A","outputs":[{"name":"","type":"bytes32"}],"payable":false,"stateMutability":"view","type":"function"},{"inputs":[],"payable":false,"stateMutability":"nonpayable","type":"constructor"}]
+
+
+Mycon = eth.contract(abi)
+
+bin="0x60806040526000600760006101000a81548160ff0219169083151502179055506000600760016101000a81548160ff02191690831515021790555034801561004657600080fd5b506106a5806100566000396000f3006080604052600436106100a4576000357c0100000000000000000000000000000000000000000000000000000000900463ffffffff168063204b15dd146100a95780632d9aa9a4146100e45780633c8279d21461011757806357c420591461016e5780636beaeeae146101b35780637d553c5a146101de57806388ac26dc14610235578063b14df2791461027e578063c9e525df146102b1578063e648e26b146102dc575b600080fd5b3480156100b557600080fd5b506100e260048036038101908080359060200190929190803560001916906020019092919050505061030f565b005b3480156100f057600080fd5b506100f9610398565b60405180826000191660001916815260200191505060405180910390f35b34801561012357600080fd5b5061012c61039e565b604051808273ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b34801561017a57600080fd5b506101b1600480360381019080803560001916906020019092919080359060200190929190803590602001909291905050506103c4565b005b3480156101bf57600080fd5b506101c861045b565b6040518082815260200191505060405180910390f35b3480156101ea57600080fd5b506101f3610461565b604051808273ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b34801561024157600080fd5b5061027c6004803603810190808035600019169060200190929190803590602001909291908035600019169060200190929190505050610487565b005b34801561028a57600080fd5b50610293610667565b60405180826000191660001916815260200191505060405180910390f35b3480156102bd57600080fd5b506102c661066d565b6040518082815260200191505060405180910390f35b3480156102e857600080fd5b506102f1610673565b60405180826000191660001916815260200191505060405180910390f35b600760019054906101000a900460ff1680156103785750600260009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff163373ffffffffffffffffffffffffffffffffffffffff16145b15610394578160045414156103935780600181600019169055505b5b5050565b60065481565b600260009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b60001515600760009054906101000a900460ff1615151415610456578160048190555080600581905550826006816000191690555033600260006101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055506001600760006101000a81548160ff0219169083151502179055505b505050565b60045481565b600360009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b6000806000806000600760009054906101000a900460ff1680156104be575060001515600760019054906101000a900460ff161515145b1561065d57879350600092505b6127108310156105cd576002846040516020018082600019166000191681526020019150506040516020818303038152906040526040518082805190602001908083835b602083101515610534578051825260208201915060208101905060208303925061050f565b6001836020036101000a0380198251168184511680821785525050505050509050019150506020604051808303816000865af1158015610578573d6000803e3d6000fd5b5050506040513d602081101561058d57600080fd5b8101908080519060200190929190505050915060065460001916826000191614156105bd576001830194506105cd565b81935082806001019350506104cb565b60055485600454028115156105de57fe5b0490508681141561065c57806004540360048190555033600360006101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff16021790555085600081600019169055506001600760016101000a81548160ff0219169083151502179055505b5b5050505050505050565b60005481565b60055481565b600154815600a165627a7a723058203c2b0c14999f8810e92285bd89ca8e00a1e4a206c5cfb7e300e4a5f81331bcba0029"
+
+Mycon.new({from:eth.accounts[0],data:bin,gas:2000000})
+
+addr =
+
+hashchain = eth.genHashChain(10000) 
+
+
+A:
+eth.sendMintTransaction({from:eth.accounts[0],value:"0x10000"})
+eth.sendConvertTransaction({from:eth.accounts[0],value:"0x2000"})
+eth.sendCommitTransaction({from:eth.accounts[0],value:"0x2000",to:addr,txHash:"convert_hash",h0:hashchain[0],N:"0x2000"})   
+eth.sendCommitTransaction({from:eth.accounts[0],value:"0x2000",to:addr,txHash:"0x5f77725fb6d78f75c7652931934d56e961aca16775047ff7b34c17de464a9aa0",h0:"0x45835e784eb34f9f22c3c05863c1184bbde46b170cb5e955f830453a788c3409",N:"0x2000"})
+
+A:
+eth.sendRefundTransaction({from:eth.accounts[0],value:"0x1000",to:addr})
+eth.sendDepositsgTransaction({from:eth.accounts[0],to:addr,txHash:"refund_hash"})
+eth.sendDepositsgTransaction({from:eth.accounts[0],to:addr,txHash:"0x30031b07dab8f7f7f80f535c47cc4797fb8f86358f5e9d10017dc112ae4cad82"})
+
+B:
+eth.sendClaimTransaction({from:eth.accounts[0],value:"0x1000",to:addr,hi:hashchain[4096]})
+
+eth.sendDepositsgTransaction({from:eth.accounts[0],to:addr,txHash:"claim_hash"})
+eth.sendDepositsgTransaction({from:eth.accounts[0],to:addr,txHash:"0x1905445c5e52ebe775d9e64c7f7ccc33effe093f28a2196075ed1b261a468590"})
+===================================================================
+
+
+geth --datadir signer3/data account new
+
+clear
+
+geth --datadir signer3/data init pow.json
+
+geth --datadir signer3/data --networkid 55661 --port 2005 --unlock de2e394ac41c34c870d40e79fb59c233fc194dc7 --password signer3/passwd.txt console
+
+eth.sendPublicTransaction({from:eth.accounts[0],to:"156669f9f391aa6a77c494ec6bd4a7761a6541b7",value:web3.toWei(0.05, "ether")})
+
+eth.sendPublicTransaction({from:eth.accounts[0],to:"be95e7fc69d14f993bd8dc5f6d9c338c11c64f79",value:web3.toWei(0.05, "ether")})
+
+miner.start()
+
+=================================================================================================
+
+geth --datadir signer4/data account new
+
+clear
+
+geth --datadir signer4/data init pow.json
+
+geth --datadir signer4/data --networkid 55661 --port 2006 --unlock 29eec49600049eb192b860121447bfc72fe7ebac --password signer4/passwd.txt console
+
+
+======================================================================================================
+
+admin.addPeer("enode://90504ba73d0781d0706f7b84789b4d04431ebf3be93c00a4d13b716110179b425f269a42b766a129d0194d53eb4f847eb0b38f141956127b13edf8b08a6c00d0@[::]:2005")
+
+net.peerCount
+
+eth.getBalance(eth.accounts[0])
+
+eth.getBalance(eth.accounts[1])
+
+
+eth.sendPublicTransaction({from:eth.accounts[0],to:"156669f9f391aa6a77c494ec6bd4a7761a6541b7",value:web3.toWei(0.05, "ether")})
+
+
+eth.sendPublicTransaction({from:eth.accounts[0],to:"be95e7fc69d14f993bd8dc5f6d9c338c11c64f79",value:web3.toWei(0.05, "ether")})
+
+
+txpool.status
+
+
+miner.start()
+
+
+miner.stop()
+
+
+eth.getBlock()
+
+
+eth.getTransaction("")
+
+
+
+
+
+
+
+
+
+
+
