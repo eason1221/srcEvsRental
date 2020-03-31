@@ -7,7 +7,6 @@ extern "C"
 #include <stdint.h>
 
     char *genCMT(uint64_t value, char *sn_string, char *r_string);
-    char *genCMT_1(uint64_t value, char *sn_string, char *r_string, char *snA_string);
 
     char *genConvertproof(uint64_t value_A,
                    char *sn_s_string,
@@ -22,7 +21,7 @@ extern "C"
                    char *r_A_new,
                    char *cmt_A_new);
 
-    bool verifyConvertproof(char *data, char *cmtA_old_string, char *sn_old_string, char *cmtS_string ,char *cmtA_new_string);
+    bool verifyConvertproof(char *data, char *cmtA_old_string, char *sn_s_string, char *sn_old_string, char *cmtS_string ,char *cmtA_new_string);
 
 #ifdef __cplusplus
 } // extern "C"

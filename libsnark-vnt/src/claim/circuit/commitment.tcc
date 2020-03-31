@@ -87,3 +87,60 @@ public:
         hasher2->generate_r1cs_witness();
     }
 };
+
+// sha256(data+padding), data.size() < 512-64-1bits
+template<typename FieldT>
+class sha256_one_block_gadget : gadget<FieldT> {
+private:
+    std::shared_ptr<block_variable<FieldT>> block;
+    std::shared_ptr<sha256_compression_function_gadget<FieldT>> hasher;
+
+public:
+    sha256_one_block_gadget(                // cmt_s = sha256(value, pk_B, sn_s, r, sn_A, padding)
+        protoboard<FieldT> &pb,
+        pb_variable<FieldT>& ZERO,
+        pb_variable_array<FieldT>& v,       // 64bits value for Send
+        pb_variable_array<FieldT>& r,       // 256bits random number
+        std::shared_ptr<digest_variable<FieldT>> cmtS // 256bits hash
+    ) : gadget<FieldT>(pb, "sha256_two_block_gadget") {
+
+        // final padding = base_padding + length
+        pb_variable_array<FieldT> length_padding =
+            from_bits({
+                1,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, // 4*4*8 = 128bits
+
+                // length of message (320 bits)
+                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,1, 0,1,0,0,0,0,0,0 // 8*8 = 64bits
+            }, ZERO); // 24*8=192bits
+
+        block.reset(new block_variable<FieldT>(pb, {
+            v,                       // 64bits
+            r,                      // 256bits
+            length_padding            // 192bits
+        }, "sha256_one_block_gadget_block"));
+
+        pb_linear_combination_array<FieldT> IV = SHA256_default_IV(pb);
+
+        hasher.reset(new sha256_compression_function_gadget<FieldT>(
+            pb,
+            IV,
+            block->bits,
+            *cmtS,
+        "sha256_one_block_hash"));
+    }
+
+    void generate_r1cs_constraints() {
+        // TODO: This may not be necessary if SHA256 constrains
+        // its output digests to be boolean anyway.
+
+        hasher->generate_r1cs_constraints();
+    }
+
+    void generate_r1cs_witness() {
+        hasher->generate_r1cs_witness();
+    }
+};

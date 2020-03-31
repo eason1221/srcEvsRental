@@ -77,7 +77,7 @@ public:
             );
         }
 
-        // 1 * (value_old - value_s) = this->value 
+        // 1 * (value_old + value_s) = this->value 
         this->pb.add_r1cs_constraint(r1cs_constraint<FieldT>(1, (this->value_old_packed + this->value_s_packed), this->value_packed),
                                  FMT(this->annotation_prefix, " equal"));
         

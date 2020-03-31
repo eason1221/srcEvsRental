@@ -1,7 +1,5 @@
 #include <stdio.h>
 #include <iostream>
-#include <time.h>
-#include <chrono>
 
 #include <boost/optional.hpp>
 #include <boost/foreach.hpp>
@@ -17,8 +15,6 @@
 using namespace libsnark;
 using namespace libff;
 using namespace std;
-using std::chrono::high_resolution_clock;
-using std::chrono::milliseconds;
 #include "circuit/gadget.tcc"
 
 template<typename T>
@@ -43,7 +39,6 @@ void vkToFile(r1cs_ppzksnark_verification_key<alt_bn128_pp> vk, const char* vk_p
 
 
 int main(){
-    high_resolution_clock::time_point beginTime = high_resolution_clock::now();
     alt_bn128_pp::init_public_params();
     typedef libff::Fr<alt_bn128_pp> FieldT;
     protoboard<FieldT> pb;
@@ -51,9 +46,6 @@ int main(){
     claim.generate_r1cs_constraints();// 生成约束
     const r1cs_constraint_system<FieldT> constraint_system = pb.get_constraint_system();
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair = r1cs_ppzksnark_generator<alt_bn128_pp>(constraint_system);
-    high_resolution_clock::time_point endTime = high_resolution_clock::now();
-    milliseconds timeInterval = std::chrono::duration_cast<milliseconds>(endTime - beginTime);
-    std::cout <<"GenKeypair_time ="<< timeInterval.count() << "ms\n";
     serializeProvingKeyToFile(keypair.pk,"claimpk.txt");
     vkToFile(keypair.vk,"claimvk.txt");
 }

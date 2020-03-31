@@ -266,10 +266,10 @@ void enter_block(const std::string &msg, const bool indent)
     {
         op_profiling_enter(msg);
 
-        print_indent();
-        printf("(enter) %-35s\t", msg.c_str());
-        print_times_from_last_and_start(t, t, cpu_t, cpu_t);
-        printf("\n");
+        //print_indent();
+        //printf("(enter) %-35s\t", msg.c_str());
+        //print_times_from_last_and_start(t, t, cpu_t, cpu_t);
+        //printf("\n");
         fflush(stdout);
 
         if (indent)
@@ -321,11 +321,11 @@ void leave_block(const std::string &msg, const bool indent)
             --indentation;
         }
 
-        print_indent();
-        printf("(leave) %-35s\t", msg.c_str());
-        print_times_from_last_and_start(t, enter_times[msg], cpu_t, enter_cpu_times[msg]);
-        print_op_profiling(msg);
-        printf("\n");
+        //print_indent();
+        //printf("(leave) %-35s\t", msg.c_str());
+        //print_times_from_last_and_start(t, enter_times[msg], cpu_t, enter_cpu_times[msg]);
+        //print_op_profiling(msg);
+        //printf("\n");
         fflush(stdout);
     }
 }

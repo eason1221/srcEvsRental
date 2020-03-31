@@ -20,13 +20,6 @@ public:
     Note(uint64_t value, uint256 sn, uint256 r)
         : value(value), sn(sn), r(r) {}
 
-    // Note() {
-    //     //a_pk = random_uint256();
-    //     sn = random_uint256();
-    //     r = random_uint256();
-    //     value = 0;
-    // }
-
     uint256 cm() const{
 
         CSHA256 hasher;

@@ -6,19 +6,16 @@
 /***********************************************************
  * 模块整合，主要包括验证proof时所需要的publicData的输入
  ***********************************************************
- * sha256_two_block_gadget, addition_constraint, 
- * sha256_three_block_gadget, merkle_gadget
+ * sha256_two_block_gadget,  
+ * sha256_one_block_gadget, merkle_gadget
  **************************************************************
- * sha256_two(data+padding), 512bits < data.size() < 1024-64-1bits
- * sha256_three(data+padding), 1024bits < data.size() < 1536-64-1bits
+ * sha256_two(data+padding), 512-64-1bits < data.size() < 1024-64-1bits
+ * sha256_one(data+padding), data.size() < 512-64-1bits
  * ************************************************************
- * publicData:  pk_B', cmtB_old, cmtB, sn_B_old, rt_cmt
- * privateData: cmtS, value_s, sn_s, r_s, sn_A_old
- *              value_old, r_B_old
- *              value_new, sn_B, r_B
+ * publicData:  cmtC, sn_s, rt_cmt
+ * privateData: cmtS, value_s, r_s, r_c
  * ********************************************************
- * auxiliary: value_new == value_old + value_s
- *            rt_cmt
+ * auxiliary:  rt_cmt
  **********************************************************/
 template<typename FieldT>
 class commit_gadget : public gadget<FieldT> {
@@ -32,16 +29,20 @@ public:
     pb_variable<FieldT> value_enforce; // merkle_tree_gadget的参数
     std::shared_ptr<merkle_tree_gadget<FieldT>> witness_input; // merkle_tree_gadget 
 
-    // cmtS = sha256(value_s, pk, sn_s, r_s, sn_A_old, padding)
+    // cmtS = sha256(value_s, sn_s, r_s)
     pb_variable_array<FieldT> value_s;
     std::shared_ptr<digest_variable<FieldT>> sn_s;    // 256bits serial number associsated with a balance transferred between two accounts
     std::shared_ptr<digest_variable<FieldT>> r_s;     // 256bits random number
-    std::shared_ptr<digest_variable<FieldT>> sn_A_old;
+    std::shared_ptr<digest_variable<FieldT>> r_c;     // 256bits random number
 
-    std::shared_ptr<notes_gadget<FieldT>> notes;   //notes
-    // new commitment with sha256_three_block_gadget
-    std::shared_ptr<digest_variable<FieldT>> cmtS; // cm
-    std::shared_ptr<sha256_two_block_gadget<FieldT>> commit_to_input_cmt_s; // note_commitment
+    std::shared_ptr<note_three_gadget<FieldT>> noteS;   //note for cmtS
+    std::shared_ptr<note_two_gadget<FieldT>> noteC;   //note for cmtC
+
+    std::shared_ptr<digest_variable<FieldT>> cmtS; // cmtS
+    std::shared_ptr<digest_variable<FieldT>> cmtC; // cmtC
+
+    std::shared_ptr<sha256_two_block_gadget<FieldT>> commit_to_input_cmt_s; // note_commitment for cmtS
+    std::shared_ptr<sha256_one_block_gadget<FieldT>> commit_to_input_cmt_c; // note_commitment for cmtC
 
     pb_variable<FieldT> ZERO;
 
@@ -58,9 +59,9 @@ public:
             zk_packed_inputs.allocate(pb, verifying_field_element_size()); 
             this->pb.set_input_sizes(verifying_field_element_size());
 
-            alloc_uint256(zk_unpacked_inputs, zk_merkle_root); // 追加merkle_root到zk_unpacked_inputs
+            alloc_uint256(zk_unpacked_inputs, zk_merkle_root); // 追加merkle_root到zk_unpacked_inputs | publicData 验证输入
             alloc_uint256(zk_unpacked_inputs, sn_s);
-            alloc_uint64(zk_unpacked_inputs, this->value_s);
+            alloc_uint256(zk_unpacked_inputs, cmtC);
 
             assert(zk_unpacked_inputs.size() == verifying_input_bit_size()); // 判定输入长度
 
@@ -81,15 +82,21 @@ public:
         ZERO.allocate(this->pb, FMT(this->annotation_prefix, "zero"));
         
         r_s.reset(new digest_variable<FieldT>(pb, 256, "random number"));
-        sn_A_old.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
+        r_c.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
         cmtS.reset(new digest_variable<FieldT>(pb, 256, "cmtS"));
+        value_s.allocate(pb, 64);
 
-        notes.reset(new notes_gadget<FieldT>(
+        noteS.reset(new note_three_gadget<FieldT>(
             pb,
             value_s, 
             sn_s,
-            r_s,
-            sn_A_old
+            r_s
+        ));
+
+        noteC.reset(new note_two_gadget<FieldT>( //cmtV
+            pb,
+            value_s, 
+            r_c
         ));
 
         commit_to_input_cmt_s.reset(new sha256_two_block_gadget<FieldT>( 
@@ -98,8 +105,15 @@ public:
             value_s,       // 64bits value
             sn_s->bits,    // 256bits serial number
             r_s->bits,     // 256bits random number
-            sn_A_old->bits,   // 256bits serial number
             cmtS
+        ));
+
+        commit_to_input_cmt_c.reset(new sha256_one_block_gadget<FieldT>( 
+            pb,
+            ZERO,
+            value_s,       // 64bits value
+            r_c->bits,     // 256bits random number
+            cmtC
         ));
 
         // Merkle construct
@@ -116,7 +130,8 @@ public:
         // The true passed here ensures all the inputs are boolean constrained.
         unpacker->generate_r1cs_constraints(true);
 
-        notes->generate_r1cs_constraints();
+        noteS->generate_r1cs_constraints();
+        noteC->generate_r1cs_constraints();
 
         // Constrain `ZERO`
         generate_r1cs_equals_const_constraint<FieldT>(this->pb, ZERO, FieldT::zero(), "ZERO");
@@ -126,20 +141,26 @@ public:
         cmtS->generate_r1cs_constraints();
         commit_to_input_cmt_s->generate_r1cs_constraints();
 
+        cmtC->generate_r1cs_constraints();
+        commit_to_input_cmt_c->generate_r1cs_constraints();
+
         // Merkle constraint
         zk_merkle_root->generate_r1cs_constraints();
         generate_boolean_r1cs_constraint<FieldT>(this->pb, value_enforce,"");
         witness_input->generate_r1cs_constraints();
     }
 
-    // 证据函数，为commitment_with_add_and_less_gadget的变量生成证据
+    // 证据函数，为commit_gadget的变量生成证据
     void generate_r1cs_witness(
         const NoteS& note_s, 
+        const NoteC& note_c,
         uint256 cmtS_data,
+        uint256 cmtC_data,
         const uint256& rt,
         const MerklePath& path
     ) {
-        notes->generate_r1cs_witness(note_s);
+        noteS->generate_r1cs_witness(note_s);
+        noteC->generate_r1cs_witness(note_c);
 
         // Set enforce flag for nonzero input value
         this->pb.val(value_enforce) = (note_s.value != 0) ? FieldT::one() : FieldT::zero();
@@ -149,12 +170,17 @@ public:
 
         // Witness the commitment of the input note
         commit_to_input_cmt_s->generate_r1cs_witness();
+        commit_to_input_cmt_c->generate_r1cs_witness();
 
         // [SANITY CHECK] Ensure the commitment is
         // valid.
         cmtS->bits.fill_with_bits(
             this->pb,
             uint256_to_bool_vector(cmtS_data)
+        );
+        cmtC->bits.fill_with_bits(
+            this->pb,
+            uint256_to_bool_vector(cmtC_data)
         );
 
         // Witness merkle tree authentication path
@@ -178,13 +204,13 @@ public:
     static r1cs_primary_input<FieldT> witness_map(
         const uint256& rt,
         const uint256& sn_s,
-        const uint64_t value_s
+        const uint256& cmtC
     ) {
         std::vector<bool> verify_inputs;
 
         insert_uint256(verify_inputs, rt);
         insert_uint256(verify_inputs, sn_s);
-        insert_uint64(verify_inputs, value_s);
+        insert_uint256(verify_inputs, cmtC);
 
         assert(verify_inputs.size() == verifying_input_bit_size());
         auto verify_field_elements = pack_bit_vector_into_field_element_vector<FieldT>(verify_inputs);
@@ -198,7 +224,7 @@ public:
 
         acc += 256; // merkle root
         acc += 256; // sn_s
-        acc += 64; // value_s
+        acc += 256; // cmtC
         
         return acc;
     }

@@ -27,7 +27,9 @@ using namespace libvnt;
 template<typename ppzksnark_ppT>
 boost::optional<r1cs_ppzksnark_proof<ppzksnark_ppT>> generate_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
                                                                     const NoteS& note_s,
+                                                                    const NoteC& note_c,
                                                                     uint256 cmtS,
+                                                                    uint256 cmtC,
                                                                     const uint256& rt,
                                                                      const MerklePath& path
                                                                    )
@@ -38,7 +40,7 @@ boost::optional<r1cs_ppzksnark_proof<ppzksnark_ppT>> generate_proof(r1cs_ppzksna
     commit_gadget<FieldT> commit(pb); // 构造新模型
     commit.generate_r1cs_constraints(); // 生成约束
 
-    commit.generate_r1cs_witness(note_s, cmtS, rt, path); // 为新模型的参数生成证明
+    commit.generate_r1cs_witness(note_s, note_c, cmtS, cmtC, rt, path); // 为新模型的参数生成证明
 
     cout << "pb.is_satisfied() is " << pb.is_satisfied() << endl;
 
@@ -56,14 +58,14 @@ bool verify_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_ke
                     r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
                     const uint256& rt,
                     const uint256& sn_s,
-                    uint64_t value_s                 )
+                    const uint256& cmtC            )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
     const r1cs_primary_input<FieldT> input = commit_gadget<FieldT>::witness_map(
         rt,
         sn_s,
-        value_s
+        cmtC
     ); 
 
     // 调用libsnark库中验证proof的函数
@@ -75,7 +77,7 @@ void PrintProof(r1cs_ppzksnark_proof<ppzksnark_ppT> proof)
 {
     printf("================== Print proof ==================================\n");
     //printf("proof is %x\n", *proof);
-    std::cout << "deposit proof:\n";
+    std::cout << "commit proof:\n";
 
     std::cout << "\n knowledge_commitment<G1<ppT>, G1<ppT> > g_A: ";
     std::cout << "\n   knowledge_commitment.g: \n     " << proof.g_A.g;
@@ -103,9 +105,12 @@ bool test_commit_gadget_with_instance(
    
     uint256 sn_s = uint256S("123");//random_uint256();
     uint256 r_s = uint256S("123");//random_uint256();
-    uint256 sn_A_old = uint256S("123");
-    NoteS note_s = NoteS(value_s, sn_s, r_s, sn_A_old);
+    NoteS note_s = NoteS(value_s, sn_s, r_s);
     uint256 cmtS = note_s.cm();
+
+    uint256 r_c = uint256S("123");//random_uint256();
+    NoteC note_c = NoteC(value_s, r_c);
+    uint256 cmtC = note_c.cm();
 
     boost::array<uint256, 16> commitments; //16个cmts
     //std::vector<boost::optional<uint256>>& commitments;
@@ -153,25 +158,6 @@ bool test_commit_gadget_with_instance(
 
     cout << "tree.root = 0x" << tree.root().ToString() << endl;
     cout << "wit.root = 0x" << wit.root().ToString() << endl;
-
-    // 错误测试数据
-    // ZCIncrementalMerkleTree wrong_tree;
-    // assert(wrong_tree.root() == ZCIncrementalMerkleTree::empty_root());
-    // wrong_tree.append(uint256S("17"));
-    // ZCIncrementalWitness wrong_wit = wrong_tree.witness(); //初始化witness
-    // wrong_wit.append(uint256S("18"));
-    // wrong_wit.append(uint256S("19"));
-    // wrong_wit.append(uint256S("20"));
-    
-    // uint256 wrong_rt = wrong_wit.root();
-    // auto wrong_path = wrong_wit.path();
-    // uint256 wrong_cmtS = note_old.cm();
-    // uint256 wrong_cmtB_old = note.cm();
-    // uint256 wrong_cmtB = note_old.cm();
-    // uint160 wrong_pk_recv = uint160S("333");
-    // uint256 wrong_sn_old = uint256S("666");
-
-    // cout << "wit.wrong_root = 0x" << wrong_rt.ToString() << endl;
    
     typedef libff::Fr<ppzksnark_ppT> FieldT;
 
@@ -192,9 +178,11 @@ bool test_commit_gadget_with_instance(
 
     auto proof = generate_proof<default_r1cs_ppzksnark_pp>(keypair.pk, 
                                                             note_s,
+                                                            note_c,
                                                             cmtS,
-                                                            rt, //wrong_rt
-                                                            path //wrong_path
+                                                            cmtC,
+                                                            rt, 
+                                                            path 
                                                             );
 
     // verify proof
@@ -203,14 +191,12 @@ bool test_commit_gadget_with_instance(
         return false;
     } else {
         PrintProof(*proof);
-
-        //assert(verify_proof(keypair.vk, *proof));
         
         bool result = verify_proof(keypair.vk, 
                                     *proof, 
-                                    rt, //wrong_rt
+                                    rt, 
                                     sn_s,
-                                    value_s
+                                    cmtC
                                    );
 
         printf("verify result = %d\n", result);

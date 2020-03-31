@@ -9,11 +9,12 @@ package main
 import "C"
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"unsafe"
-	"encoding/binary"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -58,27 +59,6 @@ func GenCMT(value uint64, sn []byte, r []byte) *common.Hash {
 	return &reshash
 }
 
-func GenCMT_1(values uint64, sns []byte, rs []byte, sna []byte) *common.Hash {
-
-	values_c := C.ulong(values)
-	sns_string := common.ToHex(sns[:])
-	sns_c := C.CString(sns_string)
-	defer C.free(unsafe.Pointer(sns_c))
-	rs_string := common.ToHex(rs[:])
-	rs_c := C.CString(rs_string)
-	defer C.free(unsafe.Pointer(rs_c))
-	sna_string := common.ToHex(sna[:])
-	sna_c := C.CString(sna_string)
-	defer C.free(unsafe.Pointer(sna_c))
-	//uint64_t value_s,char* pk_string,char* sn_s_string,char* r_s_string,char *sn_old_string
-	cmtA_c := C.genCMT_1(values_c, sns_c, rs_c, sna_c) //64长度16进制数
-	cmtA_go := C.GoString(cmtA_c)
-	//res := []byte(cmtA_go)
-	res, _ := hex.DecodeString(cmtA_go)
-	reshash := common.BytesToHash(res) //32长度byte数组
-	return &reshash
-}
-
 func GenConvertProof(CMTA *common.Hash, ValueA uint64, RA *common.Hash, ValueS uint64, SNS *common.Hash, RS *common.Hash, SNA *common.Hash, CMTS *common.Hash, ValueAnew uint64, SNAnew *common.Hash, RAnew *common.Hash, CMTAnew *common.Hash) []byte {
 	cmtA_c := C.CString(common.ToHex(CMTA[:]))
 	valueA_c := C.ulong(ValueA)
@@ -101,26 +81,27 @@ func GenConvertProof(CMTA *common.Hash, ValueA uint64, RA *common.Hash, ValueS u
 
 var InvalidConvertProof = errors.New("Verifying convert proof failed!!!")
 
-func VerifyConvertProof(sna *common.Hash, cmts *common.Hash, proof []byte, cmtAold *common.Hash, cmtAnew *common.Hash) error {
+func VerifyConvertProof(sns *common.Hash, sna *common.Hash, cmts *common.Hash, proof []byte, cmtAold *common.Hash, cmtAnew *common.Hash) error {
 	cproof := C.CString(string(proof))
+	sn_s_c := C.CString(common.ToHex(sns.Bytes()[:]))
 	snAold_c := C.CString(common.ToHex(sna.Bytes()[:]))
 	cmtS := C.CString(common.ToHex(cmts[:]))
 	cmtAold_c := C.CString(common.ToHex(cmtAold[:]))
 	cmtAnew_c := C.CString(common.ToHex(cmtAnew[:]))
 
-	tf := C.verifyConvertproof(cproof, cmtAold_c, snAold_c, cmtS, cmtAnew_c)
+	tf := C.verifyConvertproof(cproof, cmtAold_c, sn_s_c, snAold_c, cmtS, cmtAnew_c)
 	if tf == false {
 		return InvalidConvertProof
 	}
 	return nil
 }
 
-func main(){
+func main() {
 
 	value_old := uint64(10000)
 	sn_old := NewRandomHash()
 	r_old := NewRandomHash()
-	
+
 	values := uint64(1000)
 	sn_s := NewRandomHash()
 	r_s := NewRandomHash()
@@ -131,10 +112,14 @@ func main(){
 
 	cmtA_old := GenCMT(value_old, sn_old.Bytes(), r_old.Bytes())
 	cmtA := GenCMT(value, sn.Bytes(), r.Bytes())
-	cmtS := GenCMT_1(values, sn_s.Bytes(), r_s.Bytes(), sn_old.Bytes())
+	cmtS := GenCMT(values, sn_s.Bytes(), r_s.Bytes())
+
+	fmt.Println("sn=======", sn)
+	fmt.Println("cmts=======", cmtS)
 
 	proof := GenConvertProof(cmtA_old, value_old, r_old, values, sn_s, r_s, sn_old, cmtS, value, sn, r, cmtA)
+	fmt.Println("proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
 
-	VerifyConvertProof(sn_old, cmtS, proof, cmtA_old, cmtA)
+	VerifyConvertProof(sn_s, sn_old, cmtS, proof, cmtA_old, cmtA)
 
 }

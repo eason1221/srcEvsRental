@@ -16,12 +16,12 @@ package main
 import "C"
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"unsafe"
-	"encoding/binary"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -127,11 +127,11 @@ func VerifyDepositsgProof(sns *common.Hash, rtcmt common.Hash, cmtb *common.Hash
 	return nil
 }
 
-func main(){
+func main() {
 
 	value_old := NewRandomInt()
 	values := NewRandomInt()
-	value := value_old + values
+	value := value_old + values //更新后的零知识余额对应的明文余额
 
 	sn_old := NewRandomHash()
 	sn := NewRandomHash()
@@ -146,10 +146,10 @@ func main(){
 	cmtS := GenCMT(values, sn_s.Bytes(), r_s.Bytes())
 
 	var cmtarray []*common.Hash
-	for i := 0; i < 32; i++ {
-		if i==9 {
+	for i := 0; i < 32; i++ { //5层
+		if i == 9 {
 			cmtarray = append(cmtarray, cmtS)
-		} else{
+		} else {
 			cmt := NewRandomHash()
 			cmtarray = append(cmtarray, cmt)
 		}
@@ -161,9 +161,9 @@ func main(){
 
 	result := VerifyDepositsgProof(sn_s, RT, cmtB_old, sn_old, cmtB, proof)
 
-	if result != nil{
+	if result != nil {
 		fmt.Println(result)
-	}else{
+	} else {
 		fmt.Println("Vertify deposit_sg successfully!")
 	}
 

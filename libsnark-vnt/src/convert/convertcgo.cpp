@@ -195,7 +195,7 @@ std::string string_proof_as_hex(libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_
 template <typename ppzksnark_ppT>
 r1cs_ppzksnark_proof<ppzksnark_ppT> generate_convert_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
                                                         Note &note_old,
-                                                        NoteS &notes,
+                                                        Note &notes,
                                                         Note& note,
                                                         uint256 cmtA_old,
                                                         uint256 cmtS,
@@ -204,7 +204,7 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_convert_proof(r1cs_ppzksnark_provin
     typedef Fr<ppzksnark_ppT> FieldT;
 
     protoboard<FieldT> pb;         // 定义原始模型，该模型包含constraint_system成员变量
-    convert_gadget<FieldT> g(pb);     // 构造新模型
+    convert_gadget<FieldT> g(pb);  // 构造新模型
     g.generate_r1cs_constraints(); // 生成约束
 
     g.generate_r1cs_witness(note_old, notes, note, cmtA_old, cmtS, cmtA); // 为新模型的参数生成证明
@@ -225,7 +225,8 @@ template <typename ppzksnark_ppT>
 bool verify_convert_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
                   r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
                   uint256 &cmtA_old,
-                  uint256 &sn_old,
+                  uint256 &sn_s,
+                  uint256 &sn_old,                
                   uint256 &cmtS,
                   uint256 &cmtA)
 {
@@ -234,6 +235,7 @@ bool verify_convert_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verific
     const r1cs_primary_input<FieldT> input = convert_gadget<FieldT>::witness_map(
         cmtA_old,
         sn_old,
+        sn_s,
         cmtS,
         cmtA);
 
@@ -247,22 +249,6 @@ char *genCMT(uint64_t value, char *sn_string, char *r_string)
     uint256 sn = uint256S(sn_string);
     uint256 r = uint256S(r_string);
     Note note = Note(value, sn, r);
-    uint256 cmtA = note.cm();
-    std::string cmtA_c = cmtA.ToString();
-    char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0
-    cmtA_c.copy(p, 64, 0);
-    *(p + 64) = '\0'; //手动加结束符
-
-    return p;
-}
-
-//func GenCMT(value uint64, sn []byte, r []byte)
-char *genCMT_1(uint64_t value, char *sn_string, char *r_string, char *snA_string)
-{
-    uint256 sn = uint256S(sn_string);
-    uint256 r = uint256S(r_string);
-    uint256 snA = uint256S(snA_string);
-    NoteS note = NoteS(value, sn, r, snA);
     uint256 cmtA = note.cm();
     std::string cmtA_c = cmtA.ToString();
     char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0
@@ -290,7 +276,7 @@ char *genConvertproof(uint64_t value_A,
     uint256 r_s = uint256S(r_s_string);
     uint256 sn = uint256S(sn_string);
     uint256 r = uint256S(r_string);
-    uint256 cmtS = uint256S(cmt_s_string); //--zy
+    uint256 cmtS = uint256S(cmt_s_string);
     uint256 cmtA = uint256S(cmtA_string);
     uint256 snAnew = uint256S(sn_A_new);
     uint256 rAnew = uint256S(r_A_new);
@@ -299,7 +285,7 @@ char *genConvertproof(uint64_t value_A,
 
     //计算sha256
     Note note_old = Note(value_A, sn, r);
-    NoteS notes = NoteS(value_s, sn_s, r_s, sn);
+    Note notes = Note(value_s, sn_s, r_s);
     Note note_new = Note(value_A_new, snAnew, rAnew);
 
     //初始化参数
@@ -324,9 +310,10 @@ char *genConvertproof(uint64_t value_A,
     return p;
 }
 
-bool verifyConvertproof(char *data, char *cmtA_old_string, char *sn_old_string, char *cmtS_string ,char *cmtA_new_string)
+bool verifyConvertproof(char *data, char *cmtA_old_string, char *sn_s_string,char *sn_old_string, char *cmtS_string ,char *cmtA_new_string)
 {
     uint256 sn_old = uint256S(sn_old_string);
+    uint256 sn_s = uint256S(sn_s_string);
     uint256 cmtS = uint256S(cmtS_string);
     uint256 cmtA_old = uint256S(cmtA_old_string);
     uint256 cmtA_new = uint256S(cmtA_new_string);
@@ -440,7 +427,7 @@ bool verifyConvertproof(char *data, char *cmtA_old_string, char *sn_old_string, 
     proof.g_K.X = k_x;
     proof.g_K.Y = k_y;
 
-    bool result = verify_convert_proof(keypair.vk, proof, cmtA_old,sn_old, cmtS , cmtA_new);
+    bool result = verify_convert_proof(keypair.vk, proof, cmtA_old, sn_s, sn_old, cmtS, cmtA_new);
 
     if (!result)
     {

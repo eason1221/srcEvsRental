@@ -14,7 +14,7 @@ public:
         pb_variable<FieldT>& ZERO,
         pb_variable_array<FieldT>& v,        // 64bits value
         pb_variable_array<FieldT>& sn_old,   // 256bits serial number
-        pb_variable_array<FieldT>& rho,      // 256bits random number
+        pb_variable_array<FieldT>& rho,      // 256bits random number   64+256_+256=576 sha256_two(data+padding), 512bits < data.size() < 1024-64-1bits
         std::shared_ptr<digest_variable<FieldT>> cmtB // 256bits hash
     ) : gadget<FieldT>(pb, "sha256_two_block_gadget") {
 
@@ -37,16 +37,16 @@ public:
                 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
                 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
                 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, // 12*4*8 = 384bits
-                // length of message (576 bits)
+                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, // ③计算paddingbits - 64 =12*4*8 = 384bits
+                // length of message (576 bits) =256+256+64
                 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
-                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,1,0, 0,1,0,0,0,0,0,0 // 8*8 = 64bits
-            }, ZERO); // 56*8=448bits
+                0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,1,0, 0,1,0,0,0,0,0,0 // ②将message的位数转化为二进制bits，占64bits 8*8 = 64bits
+            }, ZERO); // 56*8=448bits ①先计算需要padding的bit位
 
         block1.reset(new block_variable<FieldT>(pb, {
             v,           // 64bits
             sn_old,      // 256bits
-            first_of_r   // 192bits
+            first_of_r   // 192bits    一共512bits
         }, "sha256_two_block_gadget_block1"));
 
         block2.reset(new block_variable<FieldT>(pb, {

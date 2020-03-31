@@ -9,11 +9,11 @@
  * sha256_two_block_gadget, addition_constraint, 
  * sha256_three_block_gadget, merkle_gadget
  **************************************************************
- * sha256_two(data+padding), 512bits < data.size() < 1024-64-1bits
+ * !sha256_two(data+padding), 512bits < data.size() < 1024-64-1bits √
  * sha256_three(data+padding), 1024bits < data.size() < 1536-64-1bits
  * ************************************************************
- * publicData:  pk_B', cmtB_old, cmtB, sn_B_old, rt_cmt
- * privateData: cmtS, value_s, sn_s, r_s, sn_A_old
+ * publicData:  cmtB_old, cmtB, sn_B_old, sn_s, rt_cmt
+ * privateData: cmtS, value_s(cost), r_s
  *              value_old, r_B_old
  *              value_new, sn_B, r_B
  * ********************************************************
@@ -32,7 +32,7 @@ public:
     pb_variable<FieldT> value_enforce; // merkle_tree_gadget的参数
     std::shared_ptr<merkle_tree_gadget<FieldT>> witness_input; // merkle_tree_gadget 
 
-    // cmtS = sha256(value_s, pk, sn_s, r_s, sn_A_old, padding)
+    // cmtS = sha256(value_s, sn_s, r_s)
     pb_variable_array<FieldT> value_s;
     std::shared_ptr<digest_variable<FieldT>> sn_s;    // 256bits serial number associsated with a balance transferred between two accounts
     std::shared_ptr<digest_variable<FieldT>> r_s;     // 256bits random number
@@ -76,7 +76,7 @@ public:
             // verification is.)
             zk_packed_inputs.allocate(pb, verifying_field_element_size()); 
             this->pb.set_input_sizes(verifying_field_element_size());
-
+            //!验证proof需要输入的参数，公开参数
             alloc_uint256(zk_unpacked_inputs, zk_merkle_root); // 追加merkle_root到zk_unpacked_inputs
             alloc_uint256(zk_unpacked_inputs, sn_s);
             alloc_uint256(zk_unpacked_inputs, cmtB_old);
@@ -100,7 +100,7 @@ public:
         value_enforce.allocate(pb);
 
         ZERO.allocate(this->pb, FMT(this->annotation_prefix, "zero"));
-        
+        //!!私密参数需要重新reset
         value_s.allocate(pb, 64);
         r_s.reset(new digest_variable<FieldT>(pb, 256, "random number"));
         cmtS.reset(new digest_variable<FieldT>(pb, 256, "cmtS"));
@@ -155,8 +155,8 @@ public:
         // Merkle construct
         witness_input.reset(new merkle_tree_gadget<FieldT>(
             pb,
-            *cmtS,
-            *zk_merkle_root,
+            *cmtS,//叶子节点hash值
+            *zk_merkle_root,//根hash值
             value_enforce
         ));
     }

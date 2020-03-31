@@ -22,8 +22,12 @@ using namespace std;
 // 生成proof
 template<typename ppzksnark_ppT>
 boost::optional<r1cs_ppzksnark_proof<ppzksnark_ppT>> generate_claim_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
-                                                                    const NoteS& notes,
-                                                                    uint256 cmtS
+                                                                    const Note& notes,
+                                                                    const NoteC& notec,
+                                                                    uint256 cmtS,
+                                                                    uint256 cmtC,
+                                                                    uint64_t L,
+                                                                    uint64_t N
                                                                    )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
@@ -32,7 +36,7 @@ boost::optional<r1cs_ppzksnark_proof<ppzksnark_ppT>> generate_claim_proof(r1cs_p
     claim_gadget<FieldT> claim(pb); // 构造新模型
     claim.generate_r1cs_constraints(); // 生成约束
 
-    claim.generate_r1cs_witness( notes, cmtS); // 为新模型的参数生成证明
+    claim.generate_r1cs_witness( notes, notec, cmtS, cmtC, L, N); // 为新模型的参数生成证明
 
     cout << "pb.is_satisfied() is " << pb.is_satisfied() << endl;
 
@@ -48,15 +52,19 @@ boost::optional<r1cs_ppzksnark_proof<ppzksnark_ppT>> generate_claim_proof(r1cs_p
 template<typename ppzksnark_ppT>
 bool verify_claim_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
                     r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
-                    uint64_t value_s,
-                    const uint256& cmtS   
+                    const uint256& cmtS,
+                    const uint256& cmtC,
+                    uint64_t L,
+                    uint64_t N
                   )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
     const r1cs_primary_input<FieldT> input = claim_gadget<FieldT>::witness_map(
-        value_s,
-        cmtS
+        cmtS,
+        cmtC,
+        L,
+        N
     ); 
 
     // 调用libsnark库中验证proof的函数
@@ -90,14 +98,22 @@ void PrintProof(r1cs_ppzksnark_proof<ppzksnark_ppT> proof)
 
 template<typename ppzksnark_ppT> //--Agzs
 bool test_claim_gadget_with_instance(
-                            uint64_t value_s   //amount
+                            uint64_t value_s,   //amount
+                            uint64_t value_c,   //va
+                            uint64_t L,         //L
+                            uint64_t N          //N
                         )
 {
-
+    std::cout << "generate parameter..."<< endl;
     uint256 sn_s = uint256S("123");//random_uint256();
     uint256 r_s = uint256S("123");//random_uint256();
-    NoteS notes = NoteS(value_s, sn_s, r_s);
+    Note notes = Note(value_s, sn_s, r_s);
     uint256 cmtS = notes.cm();
+    //uint256 cmtS_w = uint256S("345");
+
+    uint256 r_c = uint256S("123");//random_uint256();
+    NoteC notec = NoteC(value_c, r_c);
+    uint256 cmtC = notec.cm();
 
     
     typedef libff::Fr<ppzksnark_ppT> FieldT;
@@ -105,9 +121,10 @@ bool test_claim_gadget_with_instance(
     protoboard<FieldT> pb;
 
     claim_gadget<FieldT> claim(pb);
+    std::cout << "generate r1cs constraints..."<<endl;
     claim.generate_r1cs_constraints();// 生成约束
 
-    // check conatraints
+    // check constraints
     const r1cs_constraint_system<FieldT> constraint_system = pb.get_constraint_system();
     std::cout << "Number of R1CS constraints: " << constraint_system.num_constraints() << endl;
     
@@ -119,7 +136,11 @@ bool test_claim_gadget_with_instance(
 
     auto proof = generate_claim_proof<default_r1cs_ppzksnark_pp>(keypair.pk, 
                                                             notes,
-                                                            cmtS     // wrong_cmtS
+                                                            notec,
+                                                            cmtS,
+                                                            cmtC,
+                                                            L,
+                                                            N
                                                             );
 
     // 验证proof
@@ -127,18 +148,14 @@ bool test_claim_gadget_with_instance(
         printf("generate claim proof fail!!!\n");
         return false;
     } else {
-        PrintProof(*proof);
-
-        //assert(verify_send_proof(keypair.vk, *proof));
-        
         bool result = verify_claim_proof(keypair.vk, 
                                    *proof, 
-                                   value_s,
-                                   cmtS
+                                   cmtS,
+                                   cmtC,
+                                   L,
+                                   N
                                    );
 
-        //printf("verify result = %d\n", result);
-         
         if (!result){
             cout << "Verifying claim proof unsuccessfully!!!" << endl;
         } else {
@@ -154,9 +171,13 @@ int main () {
 
     libff::print_header("#             testing claim gadget");
 
-    uint64_t value_s = uint64_t(8);
+    uint64_t value_s = uint64_t(600);
+    uint64_t value_c = uint64_t(1000);
+    uint64_t L = uint64_t(6);
+    uint64_t N = uint64_t(10);
 
-    test_claim_gadget_with_instance<default_r1cs_ppzksnark_pp>(value_s);
+
+    test_claim_gadget_with_instance<default_r1cs_ppzksnark_pp>(value_s, value_c, L, N);
 
     // Note. cmake can not compile the assert()  --Agzs
     

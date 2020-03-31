@@ -23,7 +23,7 @@ using namespace std;
 template<typename ppzksnark_ppT>
 boost::optional<r1cs_ppzksnark_proof<ppzksnark_ppT>> generate_convert_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
                                                                     const Note& note_old,
-                                                                    const NoteS& notes,
+                                                                    const Note& notes,
                                                                     const Note& note,
                                                                     uint256 cmtA_old,
                                                                     uint256 cmtS,

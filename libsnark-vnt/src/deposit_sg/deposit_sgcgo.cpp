@@ -268,7 +268,7 @@ char *genCMT(uint64_t value, char *sn_string, char *r_string)
 
 char *genRoot(char *cmtarray, int n)
 {
-    boost::array<uint256, 32> commitments; //16个cmts
+    boost::array<uint256, 32> commitments; //32个cmts
 
     string s = cmtarray;
 
@@ -277,7 +277,7 @@ char *genRoot(char *cmtarray, int n)
 
     for (int i = 0; i < n; i++)
     {
-        commitments[i] = uint256S(s.substr(i * 66, 66)); //分割cmtarray  0x+64个十六进制数 一共64位
+        commitments[i] = uint256S(s.substr(i * 66, 66)); //分割cmtarray  0x+64个十六进制数 一共66位
         tree.append(commitments[i]);
     }
 

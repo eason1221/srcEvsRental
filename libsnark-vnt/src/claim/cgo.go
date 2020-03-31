@@ -9,11 +9,12 @@ package main
 import "C"
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"unsafe"
-	"encoding/binary"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -41,7 +42,6 @@ func NewRandomInt() uint64 {
 }
 
 func GenCMT(value uint64, sn []byte, r []byte) *common.Hash {
-	//sn_old_c := C.CString(common.ToHex(SNold[:]))
 	value_c := C.ulong(value)
 	sn_string := common.ToHex(sn[:])
 	sn_c := C.CString(sn_string)
@@ -52,20 +52,41 @@ func GenCMT(value uint64, sn []byte, r []byte) *common.Hash {
 
 	cmtA_c := C.genCMT(value_c, sn_c, r_c)
 	cmtA_go := C.GoString(cmtA_c)
-	//res := []byte(cmtA_go)
 	res, _ := hex.DecodeString(cmtA_go)
 	reshash := common.BytesToHash(res)
 	return &reshash
 }
 
-func GenClaimProof(ValueS uint64, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash) []byte {
+func GenCMT2(value uint64, r []byte) *common.Hash {
+	value_c := C.ulong(value)
+	r_string := common.ToHex(r[:])
+	r_c := C.CString(r_string)
+	defer C.free(unsafe.Pointer(r_c))
 
-	valueS := C.ulong(ValueS)
+	cmtA_c := C.genCMT2(value_c, r_c)
+	cmtA_go := C.GoString(cmtA_c)
+	res, _ := hex.DecodeString(cmtA_go)
+	reshash := common.BytesToHash(res)
+	return &reshash
+}
+
+//GenClaimProof function
+func GenClaimProof(SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *common.Hash, CMTT *common.Hash,
+	Subcost uint64, Cost uint64, Subdist uint64, Dist uint64) []byte {
+
 	snS := C.CString(common.ToHex(SNS.Bytes()[:]))
 	rS := C.CString(common.ToHex(RS.Bytes()[:]))
 	cmtS := C.CString(common.ToHex(CMTS[:]))
 
-	cproof := C.genClaimproof(snS, rS, cmtS, valueS)
+	rR := C.CString(common.ToHex(RR.Bytes()[:]))
+	cmtt := C.CString(common.ToHex(CMTT[:]))
+
+	subdist := C.ulong(Subdist)
+	dist := C.ulong(Dist)
+	subcost := C.ulong(Subcost)
+	cost := C.ulong(Cost)
+
+	cproof := C.genClaimproof(snS, rS, cmtS, rR, cmtt, cost, subcost, dist, subdist)
 	var goproof string
 	goproof = C.GoString(cproof)
 	return []byte(goproof)
@@ -73,27 +94,47 @@ func GenClaimProof(ValueS uint64, SNS *common.Hash, RS *common.Hash, CMTS *commo
 
 var InvalidClaimProof = errors.New("Verifying claim proof failed!!!")
 
-func VerifyClaimProof(cmts *common.Hash, ValueS uint64, proof []byte) error {
+//
+func VerifyClaimProof(cmts *common.Hash, CMTT *common.Hash, proof []byte,
+	Subdist uint64, Dist uint64) error {
 	cproof := C.CString(string(proof))
-	valueS := C.ulong(ValueS)
 	cmtS := C.CString(common.ToHex(cmts[:]))
 
-	tf := C.verifyClaimproof(cproof, cmtS, valueS)
+	cmtt := C.CString(common.ToHex(CMTT[:]))
+
+	subdist := C.ulong(Subdist)
+	dist := C.ulong(Dist)
+
+	tf := C.verifyClaimproof(cproof, cmtS, cmtt, subdist, dist)
 	if tf == false {
 		return InvalidClaimProof
 	}
 	return nil
 }
 
-func main(){
+func main() {
 
-	values := NewRandomInt()
+	cost := uint64(10)
 	sn_s := NewRandomHash()
 	r_s := NewRandomHash()
-	cmtS := GenCMT(values, sn_s.Bytes(), r_s.Bytes())
+	cmtS := GenCMT(cost, sn_s.Bytes(), r_s.Bytes())
 
-	proof := GenClaimProof(values, sn_s, r_s, cmtS)
+	subdist := uint64(50)
+	dist := uint64(25)
 
-	VerifyClaimProof(cmtS, values , proof)
+	subcost := uint64(20)
+	r := NewRandomHash()
+	cmtt := GenCMT2(subcost, r.Bytes())
+
+	fmt.Println("cost=<<<<<<<<<<<<<<<<<<", cost)
+	fmt.Println("sn_s=<<<<<<<<<<<<<<<<<<<<", sn_s)
+	fmt.Println("r_s=<<<<<<<<<<<<<<<<<<<<<", r_s)
+
+	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<GenClaimProof<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+	proof := GenClaimProof(sn_s, r_s, cmtS, r, cmtt, subcost, cost, subdist, dist)
+	fmt.Println("proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
+
+	fmt.Println("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<VerifyClaimProof<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+	VerifyClaimProof(cmtS, cmtt, proof, subdist, dist)
 
 }
