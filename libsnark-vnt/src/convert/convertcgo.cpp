@@ -206,13 +206,12 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_convert_proof(r1cs_ppzksnark_provin
     protoboard<FieldT> pb;         // 定义原始模型，该模型包含constraint_system成员变量
     convert_gadget<FieldT> g(pb);  // 构造新模型
     g.generate_r1cs_constraints(); // 生成约束
-
     g.generate_r1cs_witness(note_old, notes, note, cmtA_old, cmtS, cmtA); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
         //throw std::invalid_argument("Constraint system not satisfied by inputs");
-        cout << "can not generate convert proof" << endl;
+        cout << "can not generate cost(user) proof" << endl;
         return r1cs_ppzksnark_proof<ppzksnark_ppT>();
     }
 
@@ -292,11 +291,11 @@ char *genConvertproof(uint64_t value_A,
     alt_bn128_pp::init_public_params();
     
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
-    cout << "Trying to read convert proving key file..." << endl;
+    cout << "Trying to read cost(user) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/convertpk.txt");
     // 生成proof
-    cout << "Trying to generate convert proof..." << endl;
+    cout << "Trying to generate cost(user) proof..." << endl;
 
     libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_convert_proof<alt_bn128_pp>(keypair.pk, note_old, notes, note_new, cmtA, cmtS , cmtAnew);
 
@@ -427,15 +426,17 @@ bool verifyConvertproof(char *data, char *cmtA_old_string, char *sn_s_string,cha
     proof.g_K.X = k_x;
     proof.g_K.Y = k_y;
 
+    cout << "Trying to verify cost(user) proof..." << endl;
+
     bool result = verify_convert_proof(keypair.vk, proof, cmtA_old, sn_s, sn_old, cmtS, cmtA_new);
 
     if (!result)
     {
-        cout << "Verifying convert proof unsuccessfully!!!" << endl;
+        cout << "Verifying cost(user) proof unsuccessfully!!!" << endl;
     }
     else
     {
-        cout << "Verifying convert proof successfully!!!" << endl;
+        cout << "Verifying cost(user) proof successfully!!!" << endl;
     }
 
     return result;

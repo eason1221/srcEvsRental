@@ -10,24 +10,11 @@ include_directories(
 ################
 #shared library
 
-
-# add_library(
-#   zk_mint
-#   SHARED
-#   mint/mintcgo.cpp
-# )
-
 add_library(
   zk_convert
   SHARED
   convert/convertcgo.cpp
 )
-
-# add_library(
-#   zk_commit
-#   SHARED
-#   commit/commitcgo.cpp
-# )
 
 add_library(
   zk_claim
@@ -35,15 +22,90 @@ add_library(
   claim/claimcgo.cpp
 )
 
+add_library(
+  zk_deposit_sg
+  SHARED
+  deposit_sg/deposit_sgcgo.cpp
+)
+
 # add_library(
-#   zk_deposit_sg
+#   zk_mint
 #   SHARED
-#   deposit_sg/deposit_sgcgo.cpp
+#   mint/mintcgo.cpp
+# )
+
+# add_library(
+#   zk_commit
+#   SHARED
+#   commit/commitcgo.cpp
 # )
 
 ###############################
 # 生成各个gadget的所需的pk，vk
 ###############################
+add_executable(
+  convert_key
+
+  convert/getpvk.cpp
+)
+
+target_link_libraries(
+  convert_key
+
+  snark
+)
+
+target_include_directories(
+  convert_key
+
+  PUBLIC
+  ${DEPENDS_DIR}/libsnark
+  ${DEPENDS_DIR}/libsnark/depends/libfqfft
+)
+
+##################################
+add_executable(
+  claim_key
+
+  claim/getpvk.cpp
+)
+
+target_link_libraries(
+  claim_key
+
+  snark
+)
+
+target_include_directories(
+  claim_key
+
+  PUBLIC
+  ${DEPENDS_DIR}/libsnark
+  ${DEPENDS_DIR}/libsnark/depends/libfqfft
+)
+
+###################################
+add_executable(
+  deposit_sg_key
+
+  deposit_sg/getpvk.cpp
+)
+
+target_link_libraries(
+  deposit_sg_key
+
+  snark
+)
+
+target_include_directories(
+  deposit_sg_key
+
+  PUBLIC
+  ${DEPENDS_DIR}/libsnark
+  ${DEPENDS_DIR}/libsnark/depends/libfqfft
+)
+
+###################################
 # add_executable(
 #   mint_key
 
@@ -63,6 +125,7 @@ add_library(
 #   ${DEPENDS_DIR}/libsnark
 #   ${DEPENDS_DIR}/libsnark/depends/libfqfft
 # )
+
 # #########################
 # add_executable(
 #   send_key
@@ -104,6 +167,7 @@ add_library(
 #   ${DEPENDS_DIR}/libsnark
 #   ${DEPENDS_DIR}/libsnark/depends/libfqfft
 # )
+
 # #########################
 # add_executable(
 #   redeem_key
@@ -124,26 +188,7 @@ add_library(
 #   ${DEPENDS_DIR}/libsnark
 #   ${DEPENDS_DIR}/libsnark/depends/libfqfft
 # )
-# #########################
-add_executable(
-  convert_key
 
-  convert/getpvk.cpp
-)
-
-target_link_libraries(
-  convert_key
-
-  snark
-)
-
-target_include_directories(
-  convert_key
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
 # #########################
 # add_executable(
 #   commit_key
@@ -159,46 +204,6 @@ target_include_directories(
 
 # target_include_directories(
 #   commit_key
-
-#   PUBLIC
-#   ${DEPENDS_DIR}/libsnark
-#   ${DEPENDS_DIR}/libsnark/depends/libfqfft
-# )
-#########################
-add_executable(
-  claim_key
-
-  claim/getpvk.cpp
-)
-
-target_link_libraries(
-  claim_key
-
-  snark
-)
-
-target_include_directories(
-  claim_key
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-# #########################
-# add_executable(
-#   deposit_sg_key
-
-#   deposit_sg/getpvk.cpp
-# )
-
-# target_link_libraries(
-#   deposit_sg_key
-
-#   snark
-# )
-
-# target_include_directories(
-#   deposit_sg_key
 
 #   PUBLIC
 #   ${DEPENDS_DIR}/libsnark

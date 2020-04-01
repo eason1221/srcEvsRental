@@ -36,3 +36,30 @@ public:
         return result;
     }
 };
+
+
+//two parameters
+class NoteC {
+public:
+    uint64_t value;
+    uint256 r;
+
+    NoteC(uint64_t value, uint256 r)
+        : value(value), r(r) {}
+
+
+    uint256 cm() const{
+
+        CSHA256 hasher;
+
+        auto value_vec = convertIntToVectorLE(value);
+
+        hasher.Write(&value_vec[0], value_vec.size());
+        hasher.Write(r.begin(), 32);
+
+        uint256 result;
+        hasher.Finalize(result.begin());
+
+        return result;
+    }
+};

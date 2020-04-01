@@ -16,6 +16,7 @@
  * privateData: cmtS, value_s(cost), r_s
  *              value_old, r_B_old
  *              value_new, sn_B, r_B
+ *              cmtt, rc
  * ********************************************************
  * auxiliary: value_new == value_old + value_s
  *            rt_cmt
@@ -28,7 +29,7 @@ public:
     pb_variable_array<FieldT> zk_unpacked_inputs; // 拆分为二进制
     std::shared_ptr<multipacking_gadget<FieldT>> unpacker; // 二进制转十进制转换器
 
-    std::shared_ptr<digest_variable<FieldT>> zk_merkle_root; 
+    std::shared_ptr<digest_variable<FieldT>> zk_merkle_root; //填充rt
     pb_variable<FieldT> value_enforce; // merkle_tree_gadget的参数
     std::shared_ptr<merkle_tree_gadget<FieldT>> witness_input; // merkle_tree_gadget 
 
@@ -36,6 +37,7 @@ public:
     pb_variable_array<FieldT> value_s;
     std::shared_ptr<digest_variable<FieldT>> sn_s;    // 256bits serial number associsated with a balance transferred between two accounts
     std::shared_ptr<digest_variable<FieldT>> r_s;     // 256bits random number
+    std::shared_ptr<digest_variable<FieldT>> rc;
 
     // cmtB_old = sha256(value_old, sn_old, r_old)
     pb_variable_array<FieldT> value_old;
@@ -50,9 +52,9 @@ public:
     // note gadget and subtraction constraint
     std::shared_ptr<note_gadget_with_packing_and_ADD<FieldT>> noteADD;
 
-    // new commitment with sha256_three_block_gadget
+    // new commitment with sha256_two_block_gadget
     std::shared_ptr<digest_variable<FieldT>> cmtS; // cm
-    std::shared_ptr<sha256_three_block_gadget<FieldT>> commit_to_input_cmt_s; // note_commitment
+    std::shared_ptr<sha256_two_block_gadget<FieldT>> commit_to_input_cmt_s; // note_commitment
 
     // old commitment with sha256_two_block_gadget
     std::shared_ptr<digest_variable<FieldT>> cmtB_old; // cm
@@ -61,6 +63,10 @@ public:
     // new commitment with sha256_two_block_gadget
     std::shared_ptr<digest_variable<FieldT>> cmtB; // cm
     std::shared_ptr<sha256_two_block_gadget<FieldT>> commit_to_inputs_cmt; // note_commitment
+
+    // new commitment with sha256_one_block_gadget
+    std::shared_ptr<digest_variable<FieldT>> cmtt; // cm
+    std::shared_ptr<sha256_one_block_gadget<FieldT>> commit_to_inputs_cmtt; // note_commitment
 
     pb_variable<FieldT> ZERO;
 
@@ -82,6 +88,7 @@ public:
             alloc_uint256(zk_unpacked_inputs, cmtB_old);
             alloc_uint256(zk_unpacked_inputs, sn_old);
             alloc_uint256(zk_unpacked_inputs, cmtB);
+            alloc_uint256(zk_unpacked_inputs, cmtt);
 
             assert(zk_unpacked_inputs.size() == verifying_input_bit_size()); // 判定输入长度
 
@@ -108,6 +115,9 @@ public:
         value_old.allocate(pb, 64);
         r_old.reset(new digest_variable<FieldT>(pb, 256, "old random number"));
 
+        rc.reset(new digest_variable<FieldT>(pb, 256, "old random number"));
+        // cmtt.reset(new digest_variable<FieldT>(pb, 256, "cmtt"));
+
         value.allocate(pb, 64);
         sn.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
         r.reset(new digest_variable<FieldT>(pb, 256, "random number"));
@@ -122,10 +132,11 @@ public:
             r_old,
             value, 
             sn,
-            r
+            r,
+            rc
         ));
 
-        commit_to_input_cmt_s.reset(new sha256_three_block_gadget<FieldT>( 
+        commit_to_input_cmt_s.reset(new sha256_two_block_gadget<FieldT>( 
             pb,
             ZERO,
             value_s,       // 64bits value
@@ -150,6 +161,14 @@ public:
             sn->bits,    // 256bits serial number
             r->bits,     // 256bits random number
             cmtB
+        ));
+
+        commit_to_inputs_cmtt.reset(new sha256_one_block_gadget<FieldT>( 
+            pb,
+            ZERO,
+            value_s,       // 64bits value
+            rc->bits,     // 256bits random number
+            cmtt
         ));
 
         // Merkle construct
@@ -181,6 +200,9 @@ public:
 
         cmtB->generate_r1cs_constraints();
         commit_to_inputs_cmt->generate_r1cs_constraints();
+        
+        cmtt->generate_r1cs_constraints();
+        commit_to_inputs_cmtt->generate_r1cs_constraints();
 
         // Merkle constraint
         zk_merkle_root->generate_r1cs_constraints();
@@ -197,9 +219,11 @@ public:
         uint256 cmtB_old_data,
         uint256 cmtB_data,
         const uint256& rt,
-        const MerklePath& path
+        const MerklePath& path,
+        const NoteC& notecmtt,
+        uint256 cmtt_data
     ) {
-        noteADD->generate_r1cs_witness(note_s, note_old, note);
+        noteADD->generate_r1cs_witness(note_s, note_old, note, notecmtt);
 
         // Set enforce flag for nonzero input value
         this->pb.val(value_enforce) = (note_s.value != 0) ? FieldT::one() : FieldT::zero();
@@ -211,6 +235,7 @@ public:
         commit_to_input_cmt_s->generate_r1cs_witness();
         commit_to_inputs_cmt_old->generate_r1cs_witness();
         commit_to_inputs_cmt->generate_r1cs_witness();
+        commit_to_inputs_cmtt->generate_r1cs_witness();
 
         // [SANITY CHECK] Ensure the commitment is
         // valid.
@@ -225,6 +250,11 @@ public:
         cmtB->bits.fill_with_bits(
             this->pb,
             uint256_to_bool_vector(cmtB_data)
+        );
+
+        cmtt->bits.fill_with_bits(
+            this->pb,
+            uint256_to_bool_vector(cmtt_data)
         );
 
         // Witness merkle tree authentication path
@@ -250,7 +280,8 @@ public:
         const uint256& sn_s,
         const uint256& cmtB_old,
         const uint256& sn_old,
-        const uint256& cmtB
+        const uint256& cmtB,
+        const uint256& cmtt
     ) {
         std::vector<bool> verify_inputs;
 
@@ -259,6 +290,7 @@ public:
         insert_uint256(verify_inputs, cmtB_old);
         insert_uint256(verify_inputs, sn_old);
         insert_uint256(verify_inputs, cmtB);
+        insert_uint256(verify_inputs, cmtt);
 
         assert(verify_inputs.size() == verifying_input_bit_size());
         auto verify_field_elements = pack_bit_vector_into_field_element_vector<FieldT>(verify_inputs);
@@ -275,6 +307,7 @@ public:
         acc += 256; // cmtB_old
         acc += 256; // sn_old
         acc += 256; // cmtB
+        acc += 256; // cmtt
         
         return acc;
     }

@@ -69,11 +69,10 @@ public:
             // verification is.)
             zk_packed_inputs.allocate(pb, verifying_field_element_size()); 
             this->pb.set_input_sizes(verifying_field_element_size());
-
+            //!公开参数
             alloc_uint256(zk_unpacked_inputs, cmtA_old);
             alloc_uint256(zk_unpacked_inputs, sn_old);
             alloc_uint256(zk_unpacked_inputs, cmtA);
-
             alloc_uint64(zk_unpacked_inputs, this->value_s); 
 
             assert(zk_unpacked_inputs.size() == verifying_input_bit_size()); // 判定输入长度
@@ -90,7 +89,7 @@ public:
         }
 
         ZERO.allocate(this->pb, FMT(this->annotation_prefix, "zero"));
-        
+        //!隐私参数
         //balance.allocate(pb, 64);
         value.allocate(pb, 64);
         value_old.allocate(pb, 64);
@@ -204,7 +203,6 @@ public:
         insert_uint256(verify_inputs, cmtA_old);
         insert_uint256(verify_inputs, sn_old);
         insert_uint256(verify_inputs, cmtA);
-
         insert_uint64(verify_inputs, value_s);
 
         assert(verify_inputs.size() == verifying_input_bit_size());

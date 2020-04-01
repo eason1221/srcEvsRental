@@ -9,8 +9,8 @@
  ************************************************************************
  * sha256(data+padding), 512bits < data.size() < 1024-64-1bits
  * **********************************************************************
- * publicData: cmtS,cmtt , dist, subdist  
- * privateData: value_s(cost), sn_s, r_s ,subcost, r
+ * publicData: cmtS, cmtt , dist, subdist ,fees 
+ * privateData: value_s(cost), sn_s, r_s ,subcost, r ,refund_i
  * **********************************************************************/
 template<typename FieldT>
 class claim_gadget : public gadget<FieldT> {
@@ -20,8 +20,8 @@ public:
     pb_variable_array<FieldT> zk_unpacked_inputs; // 拆分为二进制
     std::shared_ptr<multipacking_gadget<FieldT>> unpacker; // 二进制转十进制转换器
 
-    // cmtS = sha256(value_s, sn_s, r_s)
-    pb_variable_array<FieldT> value_s;                //cost_i,单个user需要支付的费用
+    // cmtS = sha256(refund_i, sn_s, r_s)
+    pb_variable_array<FieldT> value_s;                // cost_i,单个user需要支付的费用
     std::shared_ptr<digest_variable<FieldT>> sn_s;    // 256bits serial number associsated with a balance transferred between two accounts
     std::shared_ptr<digest_variable<FieldT>> r_s;     // 256bits random number
 
@@ -38,9 +38,11 @@ public:
     
     //parameter
     pb_variable_array<FieldT> subcost;
-    std::shared_ptr<digest_variable<FieldT>> r;//
+    std::shared_ptr<digest_variable<FieldT>> r;
     pb_variable_array<FieldT> subdist;
     pb_variable_array<FieldT> dist;
+    pb_variable_array<FieldT> fees;
+    pb_variable_array<FieldT> refundi;  
 
     pb_variable<FieldT> ZERO;
 
@@ -57,11 +59,12 @@ public:
             zk_packed_inputs.allocate(pb, verifying_field_element_size()); 
             this->pb.set_input_sizes(verifying_field_element_size());
 
-            //!验证proof需要输入的参数，即公开参数
+            //!验证proof时需要输入的参数，即公开参数
             alloc_uint256(zk_unpacked_inputs, cmtS);
             alloc_uint256(zk_unpacked_inputs, cmtt);
             alloc_uint64(zk_unpacked_inputs, this->subdist);
             alloc_uint64(zk_unpacked_inputs, this->dist);
+            alloc_uint64(zk_unpacked_inputs, this->fees);
             
 
             assert(zk_unpacked_inputs.size() == verifying_input_bit_size()); // 判定输入长度
@@ -78,13 +81,13 @@ public:
         }
 
         ZERO.allocate(this->pb, FMT(this->annotation_prefix, "zero"));
-        //!不需要验证proof输入的参数 但是需要重新reset参数---即隐私参数
+        //!不需要验证proof的其他参数 需要重新reset--即隐私参数
         value_s.allocate(pb, 64);
         sn_s.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
         r_s.reset(new digest_variable<FieldT>(pb, 256, "random number"));
-        //
         subcost.allocate(pb, 64);
         r.reset(new digest_variable<FieldT>(pb, 256, "random number"));
+        refundi.allocate(pb, 64);
        
         note.reset(new note_gadget_with_packing<FieldT>(
             pb,
@@ -92,24 +95,26 @@ public:
             sn_s,
             r_s,
             subcost,
-            r,//
+            r,
             subdist,
-            dist
+            dist,
+            fees,
+            refundi
         ));
 
         commit_to_input_cmt_s.reset(new sha256_two_block_gadget<FieldT>( 
             pb,
             ZERO,
-            value_s,       // 64bits value
+            refundi,       // 64bits refundi
             sn_s->bits,    // 256bits serial number
             r_s->bits,     // 256bits random number
             cmtS
         ));
-        //
+        
         commit_to_input_cmt_t.reset(new sha256_one_block_gadget<FieldT>( 
             pb,
             ZERO,
-            subcost,       // 64bits value
+            subcost,     // 64bits value
             r->bits,     // 256bits random number
             cmtt
         ));
@@ -140,10 +145,13 @@ public:
         uint256 cmtS_data,
         uint256 cmtt_data,
         uint64_t dist_data,
-        uint64_t subdist_data
+        uint64_t subdist_data,
+        uint64_t fees_data,
+        uint64_t cost_data
+
     ) {
 
-        note->generate_r1cs_witness(note_s, note_cmtt,dist_data,subdist_data);
+        note->generate_r1cs_witness(note_s, note_cmtt, dist_data, subdist_data, fees_data, cost_data);
 
         // Witness `zero`
         this->pb.val(ZERO) = FieldT::zero();
@@ -170,15 +178,18 @@ public:
         const uint256& cmtS,
         const uint256& cmtt,
         uint64_t subdist,
-        uint64_t dist
+        uint64_t dist,
+        uint64_t fees
+
 
     ) {
         std::vector<bool> verify_inputs;
         
         insert_uint256(verify_inputs, cmtS);
-        insert_uint256(verify_inputs, cmtt);//
+        insert_uint256(verify_inputs, cmtt);
         insert_uint64(verify_inputs, subdist);
         insert_uint64(verify_inputs, dist);
+        insert_uint64(verify_inputs, fees);
 
         assert(verify_inputs.size() == verifying_input_bit_size());
         auto verify_field_elements = pack_bit_vector_into_field_element_vector<FieldT>(verify_inputs);
@@ -194,6 +205,7 @@ public:
         acc += 256; // cmtt
         acc += 64;  // subdist
         acc += 64;  // dist
+        acc += 64;  // fees
         return acc;
     }
 

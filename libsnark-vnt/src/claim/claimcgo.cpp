@@ -197,10 +197,12 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_claim_proof(r1cs_ppzksnark_proving_
                                                         
                                                         Note &notes,
                                                         uint256 cmtS,
-                                                        NoteC &notecmtt,//
-                                                        uint256 cmtt,   //                                
+                                                        NoteC &notecmtt,
+                                                        uint256 cmtt,                              
                                                         uint64_t subdist,
-                                                        uint64_t dist
+                                                        uint64_t dist,
+                                                        uint64_t cost,
+                                                        uint64_t fees
                                                         )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
@@ -208,13 +210,12 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_claim_proof(r1cs_ppzksnark_proving_
     protoboard<FieldT> pb;         // 定义原始模型，该模型包含constraint_system成员变量
     claim_gadget<FieldT> g(pb);    // 构造新模型
     g.generate_r1cs_constraints(); // 生成约束
-
-    g.generate_r1cs_witness(notes, notecmtt,cmtS, cmtt,dist, subdist); // 为新模型的参数生成证明
+    g.generate_r1cs_witness(notes, notecmtt, cmtS, cmtt, dist, subdist, fees, cost); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
         //throw std::invalid_argument("Constraint system not satisfied by inputs");
-        cout << "can not generate claim proof" << endl;
+        cout << "can not generate divide(user) proof" << endl;
         return r1cs_ppzksnark_proof<ppzksnark_ppT>();
     }
 
@@ -229,7 +230,8 @@ bool verify_claim_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verificat
                   uint256 &cmtS,
                   uint256 &cmtt,
                   uint64_t subdist,
-                  uint64_t dist
+                  uint64_t dist,
+                  uint64_t fees
                   )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
@@ -238,7 +240,8 @@ bool verify_claim_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verificat
         cmtS,
         cmtt,
         subdist,
-        dist
+        dist,
+        fees
         );
 
     // 调用libsnark库中验证proof的函数
@@ -279,43 +282,47 @@ char *genClaimproof(
                         char *sn_s_string,
                         char *r_s_string,
                         char *cmt_s_string,
-                        char *r_string,//
-                        char *cmtt_string,//
+                        char *r_string,
+                        char *cmtt_string,
                         uint64_t cost,
                         uint64_t subcost,
                         uint64_t dist,
-                        uint64_t subdist
+                        uint64_t subdist,
+                        uint64_t fees,
+                        uint64_t refundi
                     )
 {
     //从字符串转uint256
     uint256 sn_s = uint256S(sn_s_string);
     uint256 r_s = uint256S(r_s_string);
     uint256 cmtS = uint256S(cmt_s_string); 
-    uint256 r = uint256S(r_string);//
-    uint256 cmtt = uint256S(cmtt_string);//
+    uint256 r = uint256S(r_string);
+    uint256 cmtt = uint256S(cmtt_string);
 
     //生成sha256输入
-    Note notes = Note(cost, sn_s, r_s); //cmts
-    NoteC notecmtt = NoteC(subcost,r);//
+    Note notes = Note(refundi, sn_s, r_s); //cmts
+    NoteC notecmtt = NoteC(subcost,r);     //cmtt
 
     //初始化参数
     alt_bn128_pp::init_public_params();
     
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
-    cout << "Trying to read claim proving key file..." << endl;
+    cout << "Trying to read divide(user) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/claimpk.txt");
     // 生成proof
-    cout << "Trying to generate claim proof..." << endl;
+    cout << "Trying to generate divide(user) proof..." << endl;
 
     libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof;
     proof = generate_claim_proof<alt_bn128_pp>(keypair.pk,
                                                 notes,
                                                 cmtS,
-                                                notecmtt,//
-                                                cmtt,//
+                                                notecmtt,
+                                                cmtt,
                                                 subdist,
-                                                dist
+                                                dist,
+                                                cost,
+                                                fees
                                                 );
 
     //proof转字符串
@@ -333,7 +340,8 @@ bool verifyClaimproof(
                         char *cmtS_string, 
                         char *cmtt_string, 
                         uint64_t subdist,
-                        uint64_t dist
+                        uint64_t dist,
+                        uint64_t fees
                     )
 {
     uint256 cmtS = uint256S(cmtS_string);
@@ -448,15 +456,17 @@ bool verifyClaimproof(
     proof.g_K.X = k_x;
     proof.g_K.Y = k_y;
 
-    bool result = verify_claim_proof(keypair.vk, proof, cmtS, cmtt, subdist, dist);
+    cout << "Trying to verify divide(user) proof..." << endl;
+
+    bool result = verify_claim_proof(keypair.vk, proof, cmtS, cmtt, subdist, dist, fees);
 
     if (!result)
     {
-        cout << "Verifying claim proof unsuccessfully!!!" << endl;
+        cout << "Verifying divide(user) proof unsuccessfully!!!" << endl;
     }
     else
     {
-        cout << "Verifying claim proof successfully!!!" << endl;
+        cout << "Verifying divide(user) proof successfully!!!" << endl;
     }
 
     return result;

@@ -205,21 +205,21 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_deposit_sg_proof(r1cs_ppzksnark_pro
                                                            uint256 cmtB_old,
                                                            uint256 cmtB,
                                                            const uint256 &rt,
-                                                           const MerklePath &path)
+                                                           const MerklePath &path,
+                                                           const NoteC &notecmtt,
+                                                           uint256 cmtt)
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
-    protoboard<FieldT> pb;               // 定义原始模型，该模型包含constraint_system成员变量
-    deposit_sg_gadget<FieldT> deposit_sg(pb);  // 构造新模型
-    deposit_sg.generate_r1cs_constraints(); // 生成约束
-    
-    cout << "generate witness..." << endl;
-    deposit_sg.generate_r1cs_witness(note_s, note_old, note, cmtS, cmtB_old, cmtB, rt, path); // 为新模型的参数生成证明
+    protoboard<FieldT> pb;                      // 定义原始模型，该模型包含constraint_system成员变量
+    deposit_sg_gadget<FieldT> deposit_sg(pb);   // 构造新模型
+    deposit_sg.generate_r1cs_constraints();     // 生成约束
+    deposit_sg.generate_r1cs_witness(note_s, note_old, note, cmtS, cmtB_old, cmtB, rt, path, notecmtt, cmtt); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
         //throw std::invalid_argument("Constraint system not satisfied by inputs");
-        cout << "can not generate deposit_sg proof" << endl;
+        cout << "can not generate collect(owner) proof" << endl;
         return r1cs_ppzksnark_proof<ppzksnark_ppT>();
     }
 
@@ -231,12 +231,12 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_deposit_sg_proof(r1cs_ppzksnark_pro
 template <typename ppzksnark_ppT>
 bool verify_deposit_sg_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
                           r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
-                          // const uint256& merkle_root,
                           const uint256 &rt,
                           const uint256 &sn_s,
                           const uint256 &cmtB_old,
                           const uint256 &sn_old,
-                          const uint256 &cmtB)
+                          const uint256 &cmtB,
+                          const uint256 &cmtt)
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
@@ -245,7 +245,8 @@ bool verify_deposit_sg_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> veri
         sn_s,
         cmtB_old,
         sn_old,
-        cmtB);
+        cmtB,
+        cmtt);
 
     // 调用libsnark库中验证proof的函数
     return r1cs_ppzksnark_verifier_strong_IC<ppzksnark_ppT>(verification_key, input, proof);
@@ -257,6 +258,20 @@ char *genCMT(uint64_t value, char *sn_string, char *r_string)
     uint256 sn = uint256S(sn_string);
     uint256 r = uint256S(r_string);
     Note note = Note(value, sn, r);
+    uint256 cmtA = note.cm();
+    std::string cmtA_c = cmtA.ToString();
+    char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0
+    cmtA_c.copy(p, 64, 0);
+    *(p + 64) = '\0'; //手动加结束符
+
+    return p;
+}
+
+//func GenCMT(value uint64, r []byte)
+char *genCMT2(uint64_t value, char *r_string)
+{
+    uint256 r = uint256S(r_string);
+    NoteC note = NoteC(value, r);
     uint256 cmtA = note.cm();
     std::string cmtA_c = cmtA.ToString();
     char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0
@@ -305,7 +320,9 @@ char *genDepositsgproof(uint64_t value,
                       char *cmtS_string,
                       char *cmtarray,
                       int n,
-                      char *RT)
+                      char *RT,
+                      char *rc_string,
+                      char *cmtt_string)
 {
     uint256 sn_old = uint256S(sn_old_string);
     uint256 r_old = uint256S(r_old_string);
@@ -316,12 +333,13 @@ char *genDepositsgproof(uint64_t value,
     uint256 cmtB_old = uint256S(cmtB_old_string);
     uint256 cmtB = uint256S(cmtB_string);
     uint256 cmtS = uint256S(cmtS_string);
+    uint256 rc = uint256S(rc_string);
+    uint256 cmtt = uint256S(cmtt_string);
 
     Note note_old = Note(value_old, sn_old, r_old);
-
     Note note_s = Note(value_s, sn_s, r_s);
-
     Note note = Note(value, sn, r);
+    NoteC notecmtt = NoteC(value_s, rc);
 
     boost::array<uint256, 32> commitments; //32个cmts
     string sss = cmtarray;
@@ -368,11 +386,11 @@ char *genDepositsgproof(uint64_t value,
     alt_bn128_pp::init_public_params();
 
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
-    cout << "Trying to read deposit_sg proving key file..." << endl;
+    cout << "Trying to read collect(owner) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/depositsgpk.txt");
     // 生成proof
-    cout << "Trying to generate deposit_sg proof..." << endl;
+    cout << "Trying to generate collect(owner) proof..." << endl;
 
     libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_deposit_sg_proof<alt_bn128_pp>(keypair.pk,
                                                                                                      note_s,
@@ -382,9 +400,10 @@ char *genDepositsgproof(uint64_t value,
                                                                                                      cmtB_old,
                                                                                                      cmtB,
                                                                                                      rt,
-                                                                                                     path);
+                                                                                                     path,
+                                                                                                     notecmtt,
+                                                                                                     cmtt);
     
-    cout << "generate proof successfully!" << endl;
 
     //proof转字符串
     std::string proof_string = string_proof_as_hex(proof);
@@ -396,13 +415,14 @@ char *genDepositsgproof(uint64_t value,
     return p;
 }
 
-bool verifyDepositsgproof(char *data, char *RT, char *sn_s, char *cmtb_old, char *snold, char *cmtb)
+bool verifyDepositsgproof(char *data, char *RT, char *sn_s, char *cmtb_old, char *snold, char *cmtb, char *cmtt)
 {
     uint256 rt = uint256S(RT);
     uint256 sn_S = uint256S(sn_s);
     uint256 cmtB_old = uint256S(cmtb_old);
     uint256 sn_old = uint256S(snold);
     uint256 cmtB = uint256S(cmtb);
+    uint256 cmtT = uint256S(cmtt);
 
     alt_bn128_pp::init_public_params();
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
@@ -513,21 +533,24 @@ bool verifyDepositsgproof(char *data, char *RT, char *sn_s, char *cmtb_old, char
     proof.g_K.X = k_x;
     proof.g_K.Y = k_y;
 
+    cout << "Trying to verify collect(owner) proof..." << endl;
+
     bool result = verify_deposit_sg_proof(keypair.vk,
                                        proof,
                                        rt,
                                        sn_S,
                                        cmtB_old,
                                        sn_old,
-                                       cmtB);
+                                       cmtB,
+                                       cmtT);
 
     if (!result)
     {
-        cout << "Verifying deposit_sg proof unsuccessfully!!!" << endl;
+        cout << "Verifying collect(owner) proof unsuccessfully!!!" << endl;
     }
     else
     {
-        cout << "Verifying deposit_sg proof successfully!!!" << endl;
+        cout << "Verifying collect(owner) proof successfully!!!" << endl;
     }
 
     return result;

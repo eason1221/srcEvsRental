@@ -18,7 +18,9 @@ extern "C"
                         uint64_t cost,
                         uint64_t subcost,
                         uint64_t dist,
-                        uint64_t subdist
+                        uint64_t subdist,
+                        uint64_t fees,
+                        uint64_t refundi
                     );
 
     bool verifyClaimproof(
@@ -26,7 +28,8 @@ extern "C"
                         char *cmtS_string, 
                         char *cmtt_string,  
                         uint64_t subdist,
-                        uint64_t dist
+                        uint64_t dist,
+                        uint64_t fees
                     );
 
 #ifdef __cplusplus

@@ -114,11 +114,8 @@ func main() {
 	cmtA := GenCMT(value, sn.Bytes(), r.Bytes())
 	cmtS := GenCMT(values, sn_s.Bytes(), r_s.Bytes())
 
-	fmt.Println("sn=======", sn)
-	fmt.Println("cmts=======", cmtS)
-
 	proof := GenConvertProof(cmtA_old, value_old, r_old, values, sn_s, r_s, sn_old, cmtS, value, sn, r, cmtA)
-	fmt.Println("proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
+	fmt.Println("cost(user) proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
 
 	VerifyConvertProof(sn_s, sn_old, cmtS, proof, cmtA_old, cmtA)
 
