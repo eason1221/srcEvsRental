@@ -198,14 +198,16 @@ std::string string_proof_as_hex(libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_
 
 template <typename ppzksnark_ppT>
 r1cs_ppzksnark_proof<ppzksnark_ppT> generate_deposit_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
-                                                           const NoteS &note_s,
+                                                           const Note &note_s,
                                                            const Note &note_old,
                                                            const Note &note,
                                                            uint256 cmtS,
                                                            uint256 cmtB_old,
                                                            uint256 cmtB,
                                                            const uint256 &rt,
-                                                           const MerklePath &path)
+                                                           const MerklePath &path,
+                                                           uint64_t fees,
+                                                           uint64_t cost )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
@@ -213,12 +215,12 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_deposit_proof(r1cs_ppzksnark_provin
     deposit_gadget<FieldT> deposit(pb);  // 构造新模型
     deposit.generate_r1cs_constraints(); // 生成约束
 
-    deposit.generate_r1cs_witness(note_s, note_old, note, cmtS, cmtB_old, cmtB, rt, path); // 为新模型的参数生成证明
+    deposit.generate_r1cs_witness(note_s, note_old, note, cmtS, cmtB_old, cmtB, rt, path,fees,cost); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
         //throw std::invalid_argument("Constraint system not satisfied by inputs");
-        cout << "can not generate deposit proof" << endl;
+        cout << "can not generate refund(user) proof" << endl;
         return r1cs_ppzksnark_proof<ppzksnark_ppT>();
     }
 
@@ -230,21 +232,22 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_deposit_proof(r1cs_ppzksnark_provin
 template <typename ppzksnark_ppT>
 bool verify_deposit_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
                           r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
-                          // const uint256& merkle_root,
                           const uint256 &rt,
-                          const uint160 &pk_recv,
                           const uint256 &cmtB_old,
                           const uint256 &sn_old,
-                          const uint256 &cmtB)
+                          const uint256 &cmtB,
+                          const uint256 &sn_s,
+                          uint64_t fees)
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
     const r1cs_primary_input<FieldT> input = deposit_gadget<FieldT>::witness_map(
         rt,
-        pk_recv,
         cmtB_old,
         sn_old,
-        cmtB);
+        cmtB,
+        sn_s,
+        fees);
 
     // 调用libsnark库中验证proof的函数
     return r1cs_ppzksnark_verifier_strong_IC<ppzksnark_ppT>(verification_key, input, proof);
@@ -265,26 +268,9 @@ char *genCMT(uint64_t value, char *sn_string, char *r_string)
     return p;
 }
 
-char *genCMTS(uint64_t value_s, char *pk_string, char *sn_s_string, char *r_s_string, char *sn_old_string)
-{
-    uint160 pk = uint160S(pk_string);
-    uint256 sn_s = uint256S(sn_s_string);
-    uint256 r_s = uint256S(r_s_string);
-    uint256 sn = uint256S(sn_old_string);
-    NoteS notes = NoteS(value_s, pk, sn_s, r_s, sn);
-    uint256 cmtS = notes.cm();
-
-    std::string cmtS_c = cmtS.ToString();
-    char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0
-    cmtS_c.copy(p, 64, 0);
-    *(p + 64) = '\0'; //手动加结束符
-
-    return p;
-}
-
 char *genRoot(char *cmtarray, int n)
 {
-    boost::array<uint256, 32> commitments; //16个cmts
+    boost::array<uint256, 32> commitments; //32个cmts
 
     string s = cmtarray;
 
@@ -293,7 +279,7 @@ char *genRoot(char *cmtarray, int n)
 
     for (int i = 0; i < n; i++)
     {
-        commitments[i] = uint256S(s.substr(i * 66, 66)); //分割cmtarray  0x+64个十六进制数 一共64位
+        commitments[i] = uint256S(s.substr(i * 66, 66)); //分割cmtarray  0x+64个十六进制数 一共66位
         tree.append(commitments[i]);
     }
 
@@ -318,12 +304,12 @@ char *genDepositproof(uint64_t value,
                       char *cmtB_old_string,
                       char *cmtB_string,
                       uint64_t value_s,
-                      char *pk_string,
-                      char *sn_A_oldstring,
                       char *cmtS_string,
                       char *cmtarray,
                       int n,
-                      char *RT)
+                      char *RT,
+                      uint64_t fees,
+                      uint64_t cost)
 {
     uint256 sn_old = uint256S(sn_old_string);
     uint256 r_old = uint256S(r_old_string);
@@ -333,17 +319,13 @@ char *genDepositproof(uint64_t value,
     uint256 r_s = uint256S(rs_string);
     uint256 cmtB_old = uint256S(cmtB_old_string);
     uint256 cmtB = uint256S(cmtB_string);
-    uint160 pk_recv = uint160S(pk_string);
-    uint256 sn_A_old = uint256S(sn_A_oldstring);
     uint256 cmtS = uint256S(cmtS_string);
 
     Note note_old = Note(value_old, sn_old, r_old);
-
-    NoteS note_s = NoteS(value_s, pk_recv, sn_s, r_s, sn_A_old);
-
+    Note note_s = Note(value_s, sn_s, r_s);
     Note note = Note(value, sn, r);
 
-    boost::array<uint256, 32> commitments; //16个cmts
+    boost::array<uint256, 32> commitments; //32个cmts
     string sss = cmtarray;
 
     for (int i = 0; i < n; i++)
@@ -387,11 +369,11 @@ char *genDepositproof(uint64_t value,
     alt_bn128_pp::init_public_params();
 
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
-    cout << "Trying to read deposit proving key file..." << endl;
+    cout << "Trying to read refund(user) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/depositpk.txt");
     // 生成proof
-    cout << "Trying to generate deposit proof..." << endl;
+    cout << "Trying to generate refund(user) proof..." << endl;
 
     libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_deposit_proof<alt_bn128_pp>(keypair.pk,
                                                                                                      note_s,
@@ -401,7 +383,9 @@ char *genDepositproof(uint64_t value,
                                                                                                      cmtB_old,
                                                                                                      cmtB,
                                                                                                      rt,
-                                                                                                     path);
+                                                                                                     path,
+                                                                                                     fees,
+                                                                                                     cost);
 
     //proof转字符串
     std::string proof_string = string_proof_as_hex(proof);
@@ -413,13 +397,13 @@ char *genDepositproof(uint64_t value,
     return p;
 }
 
-bool verifyDepositproof(char *data, char *RT, char *pk, char *cmtb_old, char *snold, char *cmtb)
+bool verifyDepositproof(char *data, char *RT,  char *cmtb_old, char *snold, char *cmtb, char *sns, uint64_t fees)
 {
     uint256 rt = uint256S(RT);
-    uint160 pk_recv = uint160S(pk);
     uint256 cmtB_old = uint256S(cmtb_old);
     uint256 sn_old = uint256S(snold);
     uint256 cmtB = uint256S(cmtb);
+    uint256 sn_s = uint256S(sns);
 
     alt_bn128_pp::init_public_params();
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
@@ -533,18 +517,19 @@ bool verifyDepositproof(char *data, char *RT, char *pk, char *cmtb_old, char *sn
     bool result = verify_deposit_proof(keypair.vk,
                                        proof,
                                        rt,
-                                       pk_recv,
                                        cmtB_old,
                                        sn_old,
-                                       cmtB);
+                                       cmtB,
+                                       sn_s,
+                                       fees);
 
     if (!result)
     {
-        cout << "Verifying deposit proof unsuccessfully!!!" << endl;
+        cout << "Verifying refund(user) proof unsuccessfully!!!" << endl;
     }
     else
     {
-        cout << "Verifying deposit proof successfully!!!" << endl;
+        cout << "Verifying refund(user) proof successfully!!!" << endl;
     }
 
     return result;

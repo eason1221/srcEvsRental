@@ -12,13 +12,12 @@
  * sha256_two(data+padding), 512bits < data.size() < 1024-64-1bits
  * sha256_three(data+padding), 1024bits < data.size() < 1536-64-1bits
  * ************************************************************
- * publicData:  pk_B', cmtB_old, cmtB, sn_B_old, rt_cmt
- * privateData: cmtS, value_s, sn_s, r_s, sn_A_old
- *              value_old, r_B_old
- *              value_new, sn_B, r_B
+ * publicData:  snU，sns，cmtU，cmtU‘，fees
+ * privateData: vU，rU，rs，vU’，snU‘，rU’，cost_i，refund_i，cmtc
  * ********************************************************
- * auxiliary: value_new == value_old + value_s
+ * auxiliary: value_new == value_old + value_s(refund_i)
  *            rt_cmt
+ *            refund_i = fees - cost_i
  **********************************************************/
 template<typename FieldT>
 class deposit_gadget : public gadget<FieldT> {
@@ -32,12 +31,10 @@ public:
     pb_variable<FieldT> value_enforce; // merkle_tree_gadget的参数
     std::shared_ptr<merkle_tree_gadget<FieldT>> witness_input; // merkle_tree_gadget 
 
-    // cmtS = sha256(value_s, pk, sn_s, r_s, sn_A_old, padding)
-    pb_variable_array<FieldT> value_s;
-    std::shared_ptr<digest_variable<FieldT>> pk_recv; // a random 160bits receiver's address
+    // cmtS = sha256(value_s, sn_s, r_s)
+    pb_variable_array<FieldT> value_s;//==refund_i
     std::shared_ptr<digest_variable<FieldT>> sn_s;    // 256bits serial number associsated with a balance transferred between two accounts
     std::shared_ptr<digest_variable<FieldT>> r_s;     // 256bits random number
-    std::shared_ptr<digest_variable<FieldT>> sn_A_old;
 
     // cmtB_old = sha256(value_old, sn_old, r_old)
     pb_variable_array<FieldT> value_old;
@@ -54,7 +51,7 @@ public:
 
     // new commitment with sha256_three_block_gadget
     std::shared_ptr<digest_variable<FieldT>> cmtS; // cm
-    std::shared_ptr<sha256_three_block_gadget<FieldT>> commit_to_input_cmt_s; // note_commitment
+    std::shared_ptr<sha256_two_block_gadget<FieldT>> commit_to_input_cmt_s; // note_commitment
 
     // old commitment with sha256_two_block_gadget
     std::shared_ptr<digest_variable<FieldT>> cmtB_old; // cm
@@ -65,6 +62,8 @@ public:
     std::shared_ptr<sha256_two_block_gadget<FieldT>> commit_to_inputs_cmt; // note_commitment
 
     pb_variable<FieldT> ZERO;
+    pb_variable_array<FieldT> fees;//押金
+    pb_variable_array<FieldT> cost;//cost_i
 
     deposit_gadget(
         protoboard<FieldT>& pb
@@ -80,10 +79,11 @@ public:
             this->pb.set_input_sizes(verifying_field_element_size());
 
             alloc_uint256(zk_unpacked_inputs, zk_merkle_root); // 追加merkle_root到zk_unpacked_inputs
-            alloc_uint160(zk_unpacked_inputs, pk_recv);
             alloc_uint256(zk_unpacked_inputs, cmtB_old);
             alloc_uint256(zk_unpacked_inputs, sn_old);
             alloc_uint256(zk_unpacked_inputs, cmtB);
+            alloc_uint256(zk_unpacked_inputs, sn_s);
+            alloc_uint64(zk_unpacked_inputs, fees);
 
             assert(zk_unpacked_inputs.size() == verifying_input_bit_size()); // 判定输入长度
 
@@ -104,9 +104,7 @@ public:
         ZERO.allocate(this->pb, FMT(this->annotation_prefix, "zero"));
         
         value_s.allocate(pb, 64);
-        sn_s.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
         r_s.reset(new digest_variable<FieldT>(pb, 256, "random number"));
-        sn_A_old.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
         cmtS.reset(new digest_variable<FieldT>(pb, 256, "cmtS"));
 
         value_old.allocate(pb, 64);
@@ -115,30 +113,30 @@ public:
         value.allocate(pb, 64);
         sn.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
         r.reset(new digest_variable<FieldT>(pb, 256, "random number"));
+
+        cost.allocate(pb, 64);
         
         noteADD.reset(new note_gadget_with_packing_and_ADD<FieldT>(
             pb,
             value_s, 
-            pk_recv,
             sn_s,
             r_s,
-            sn_A_old,
             value_old, 
             sn_old, 
             r_old,
             value, 
             sn,
-            r
+            r,
+            fees,
+            cost
         ));
 
-        commit_to_input_cmt_s.reset(new sha256_three_block_gadget<FieldT>( 
+        commit_to_input_cmt_s.reset(new sha256_two_block_gadget<FieldT>( 
             pb,
             ZERO,
             value_s,       // 64bits value
-            pk_recv->bits,    // 160its random address
             sn_s->bits,    // 256bits serial number
             r_s->bits,     // 256bits random number
-            sn_A_old->bits,   // 256bits serial number
             cmtS
         ));
 
@@ -198,16 +196,18 @@ public:
 
     // 证据函数，为commitment_with_add_and_less_gadget的变量生成证据
     void generate_r1cs_witness(
-        const NoteS& note_s, 
+        const Note& note_s, 
         const Note& note_old, 
         const Note& note, 
         uint256 cmtS_data,
         uint256 cmtB_old_data,
         uint256 cmtB_data,
         const uint256& rt,
-        const MerklePath& path
+        const MerklePath& path,
+        uint64_t fees,
+        uint64_t cost
     ) {
-        noteADD->generate_r1cs_witness(note_s, note_old, note);
+        noteADD->generate_r1cs_witness(note_s, note_old, note,fees,cost);
 
         // Set enforce flag for nonzero input value
         this->pb.val(value_enforce) = (note_s.value != 0) ? FieldT::one() : FieldT::zero();
@@ -255,18 +255,21 @@ public:
     // 将bit形式的私密输入 打包转换为 域上的元素
     static r1cs_primary_input<FieldT> witness_map(
         const uint256& rt,
-        const uint160& pk_recv,
         const uint256& cmtB_old,
         const uint256& sn_old,
-        const uint256& cmtB
+        const uint256& cmtB,
+        const uint256& sn_s,
+        uint64_t fees
+
     ) {
         std::vector<bool> verify_inputs;
 
         insert_uint256(verify_inputs, rt);
-        insert_uint160(verify_inputs, pk_recv);
         insert_uint256(verify_inputs, cmtB_old);
         insert_uint256(verify_inputs, sn_old);
         insert_uint256(verify_inputs, cmtB);
+        insert_uint256(verify_inputs, sn_s);
+        insert_uint64(verify_inputs, fees);
 
         assert(verify_inputs.size() == verifying_input_bit_size());
         auto verify_field_elements = pack_bit_vector_into_field_element_vector<FieldT>(verify_inputs);
@@ -279,10 +282,11 @@ public:
         size_t acc = 0;
 
         acc += 256; // merkle root
-        acc += 160; // pk_recv
         acc += 256; // cmtB_old
         acc += 256; // sn_old
         acc += 256; // cmtB
+        acc += 256; // sn_s
+        acc += 64;  // fees
         
         return acc;
     }
