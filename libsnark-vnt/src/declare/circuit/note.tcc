@@ -65,7 +65,7 @@ public:
         sn_s->bits.fill_with_bits(this->pb, uint256_to_bool_vector(notes.sn));
         r_s->bits.fill_with_bits(this->pb, uint256_to_bool_vector(notes.r));
 
-        subcost.fill_with_bits(this->pb, uint64_to_bool_vector(notecmtt.value));//Σcost
+        subcost.fill_with_bits(this->pb, uint64_to_bool_vector(notecmtt.value));//subcost
         this->pb.lc_val(subcost_packed) = subcost.get_field_element_from_bits_by_order(this->pb);
         
         r->bits.fill_with_bits(this->pb, uint256_to_bool_vector(notecmtt.r));

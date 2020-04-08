@@ -7,10 +7,8 @@ extern "C"
 #include <stdint.h>
 
     char *genCMT(uint64_t value, char *sn_string, char *r_string);
-    char *genCMT2(uint64_t value, char *r_string);
-    char *genRoot(char* cmtarray,int n);
-
-    char *genDepositsgproof(uint64_t value,
+    char* genRoot(char* cmtarray,int n);
+    char *genDepositproof(uint64_t value,
                           uint64_t value_old,
                           char *sn_old_string,
                           char *r_old_string,
@@ -25,10 +23,10 @@ extern "C"
                           char *cmtarray,
                           int n,
                           char *RT,
-                          char *rc_string,
-                          char *cmtt_string);
+                          uint64_t fees,
+                          uint64_t cost);
 
-    bool verifyDepositsgproof(char *data, char *RT, char *sn_s, char *cmtb_old, char *snold, char *cmtb, char *cmtt);
+    bool verifyDepositproof(char *data, char *RT,  char *cmtb_old, char *snold, char *cmtb, char *sns_string, uint64_t fees);
 
 #ifdef __cplusplus
 } // extern "C"

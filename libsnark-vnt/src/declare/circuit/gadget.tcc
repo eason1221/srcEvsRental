@@ -9,8 +9,8 @@
  ************************************************************************
  * sha256(data+padding), 512bits < data.size() < 1024-64-1bits
  * **********************************************************************
- * publicData: cmtS, cmtt , dist, subdist ,fees 
- * privateData: value_s(cost), sn_s, r_s ,subcost, r ,refund_i
+ * publicData:  cmtt 
+ * privateData: cmts, subcost, sn_s, r_s, r ,cmtS
  * **********************************************************************/
 template<typename FieldT>
 class declare_gadget : public gadget<FieldT> {
@@ -76,6 +76,7 @@ public:
         sn_s.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
         r_s.reset(new digest_variable<FieldT>(pb, 256, "random number"));
         r.reset(new digest_variable<FieldT>(pb, 256, "random number"));
+        cmtS.reset(new digest_variable<FieldT>(pb, 256, "cmtS"));
 
         subcost.allocate(pb, 64);
         dist.allocate(pb, 64);

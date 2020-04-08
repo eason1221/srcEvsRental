@@ -114,6 +114,9 @@ func (self *Miner) Start(coinbase common.Address) {
 	atomic.StoreInt32(&self.mining, 1)
 
 	log.Info("Starting mining operation")
+	// t := time.Now()
+	// f := fmt.Sprintf("%d:%d:%d.%d\n", t.Hour(), t.Minute(), t.Second(), t.Nanosecond()/1000000)
+	// zktx.AppendToFile("start_time.txt", f)
 	self.worker.start()
 	self.worker.commitNewWork()
 }

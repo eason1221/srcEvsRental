@@ -6,8 +6,7 @@ extern "C"
 #include <stdbool.h>
 #include <stdint.h>
 
-    //char *genCMT(uint64_t value, char *sn_string, char *r_string);
-    //char *genCMT_1(uint64_t value, char *sn_string, char *r_string, char *snA_string);
+    char *genCMT(uint64_t value, char *sn_string, char *r_string);
 
     char *genConvertproof(uint64_t value_A,
                    char *sn_s_string,

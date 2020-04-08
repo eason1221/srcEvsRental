@@ -17,9 +17,7 @@
 package core
 
 import (
-	//"crypto/ecdsa"
 	"errors"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -28,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/zktx"
 )
@@ -103,112 +102,40 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	// about the transaction and calling mechanisms.
 	vmenv := vm.NewEVM(context, statedb, config, cfg)
 
+	if tx.Code() == types.MintTx {
+		err = zktx.VerifyMintProof(tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()) //TBD
+		if err != nil {
+			return nil, 0, err
+		}
+	}
 
+	if tx.Code() == types.ConvertTx {
+		err = zktx.VerifyConvertProof(tx.ZKSNS(), tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), tx.ZKCMTOLD(), tx.ZKCMT()) //TBD
+		if err != nil {
+			return nil, 0, err
+		}
+	}
 
-	
-	if tx.TxCode() == types.MintTx {
-		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != common.Hash{}) { //if sn is already exist,
-			return nil, 0, errors.New("sn is already used ")
-		}
-		cmtbalance := statedb.GetCMTBalance(msg.From())
-		if err = zktx.VerifyMintProof(&cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()); err != nil {
-			fmt.Println("invalid zk mint proof: ", err)
+	if tx.Code() == types.ClaimTx {
+		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKCMT(), uint64(20), uint64(8), uint64(100), tx.ZKProof()) //TBD
+		if err != nil {
 			return nil, 0, err
 		}
-		statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-		statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
-	} else if tx.TxCode() == types.ConvertTx {
-		cmtbalance := statedb.GetCMTBalance(msg.From())
-		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != common.Hash{}) { //if sn is already exist,
-			return nil, 0, errors.New("sn is already used ")
-		}
-		if err = zktx.VerifyConvertProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), &cmtbalance, tx.ZKCMT()); err != nil {
-			fmt.Println("invalid zk convert proof: ", err)
+	}
+
+	if tx.Code() == types.DepositsgTx {
+		err = zktx.VerifyDepositsgProof(tx.ZKCMTT(), tx.ZKSNS(), tx.RTcmt(), tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
+		if err != nil {
 			return nil, 0, err
 		}
-		statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-		statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
-	} else if tx.TxCode() == types.CommitTx {
-		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSNS().Bytes())); exist == true && (*(tx.ZKSNS()) != common.Hash{}) { //if sn is already exist,
-			return nil, 0, errors.New("sn is already used ")
-		}
-		if err = zktx.VerifyCommitProof(tx.ZKValue(), tx.ZKSNS(), tx.RTcmt().Bytes(), tx.ZKProof()); err != nil {
-			fmt.Println("invalid zk commit proof: ", err)
+	}
+
+	if tx.Code() == types.RefundTx {
+		log.Info("============================state_processor.go verify============================")
+		err = zktx.VerifyDepositProof(uint64(100), tx.ZKSNS(), tx.RTcmt(), tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
+		if err != nil {
 			return nil, 0, err
 		}
-		statedb.CreateAccount(common.BytesToAddress(tx.ZKSNS().Bytes()))
-		statedb.SetNonce(common.BytesToAddress(tx.ZKSNS().Bytes()), 1)
-	} else if tx.TxCode() == types.ClaimTx || tx.TxCode() == types.RefundTx {
-		// if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != common.Hash{}) { //if sn is already exist,
-		// 	return nil, 0, errors.New("sn is already used ")
-		// }
-		if err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKValue(), tx.ZKProof()); err != nil {
-			fmt.Println("invalid zk Claim/refund proof: ", err)
-			return nil, 0, err
-		}
-		// statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-		// statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
-	} else if tx.TxCode() == types.DepositsgTx {
-		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != common.Hash{}) { //if sn is already exist,
-			return nil, 0, errors.New("sn in depositsg tx has been already used")
-		}
-		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSNS().Bytes())); exist == true && (*(tx.ZKSNS()) != common.Hash{}) { //if sn is already exist,
-			return nil, 0, errors.New("sns in depositsg tx has been already used")
-		}
-		cmtbalance := statedb.GetCMTBalance(msg.From())
-		if err = zktx.VerifyDepositsgProof(tx.ZKSNS(), tx.RTcmt(), &cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKProof()); err != nil {
-			fmt.Println("invalid zk depositsg proof: ", err)
-			return nil, 0, err
-		}
-		statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-		statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
-		statedb.CreateAccount(common.BytesToAddress(tx.ZKSNS().Bytes()))
-		statedb.SetNonce(common.BytesToAddress(tx.ZKSNS().Bytes()), 1)
-	// } else if tx.TxCode() == types.SendTx {
-	// 	cmtbalance := statedb.GetCMTBalance(msg.From())
-	// 	if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != common.Hash{}) { //if sn is already exist,
-	// 		return nil, 0, errors.New("sn is already used ")
-	// 	}
-	// 	if err = zktx.VerifySendProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), &cmtbalance, tx.ZKCMT()); err != nil {
-	// 		fmt.Println("invalid zk send proof: ", err)
-	// 		return nil, 0, err
-	// 	}
-	// 	statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-	// 	statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
-	// 	// } else if tx.TxCode() == types.UpdateTx {
-	// 	// 	cmtbalance := statedb.GetCMTBalance(msg.From())
-	// 	// 	if err = zktx.VerifyUpdateProof(&cmtbalance, tx.RTcmt(), tx.ZKCMT(), tx.ZKProof()); err != nil {
-	// 	// 		fmt.Println("invalid zk update proof: ", err)
-	// 	// 		return nil, 0, err
-	// 	// 	}
-	// } else if tx.TxCode() == types.DepositTx {
-	// 	if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != common.Hash{}) { //if sn is already exist,
-	// 		return nil, 0, errors.New("sn in deposit tx has been already used")
-	// 	}
-	// 	cmtbalance := statedb.GetCMTBalance(msg.From())
-	// 	addr1, err := types.ExtractPKBAddress(types.HomesteadSigner{}, tx) //tbd
-	// 	ppp := ecdsa.PublicKey{crypto.S256(), tx.X(), tx.Y()}
-	// 	addr2 := crypto.PubkeyToAddress(ppp)
-	// 	if err != nil || addr1 != addr2 {
-	// 		return nil, 0, errors.New("invalid depositTx signature ")
-	// 	}
-	// 	if err = zktx.VerifyDepositProof(&ppp, tx.RTcmt(), &cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKProof()); err != nil {
-	// 		fmt.Println("invalid zk deposit proof: ", err)
-	// 		return nil, 0, err
-	// 	}
-	// 	statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-	// 	statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
-	} else if tx.TxCode() == types.RedeemTx {
-		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != common.Hash{}) { //if sn is already exist,
-			return nil, 0, errors.New("sn is already used ")
-		}
-		cmtbalance := statedb.GetCMTBalance(msg.From())
-		if err = zktx.VerifyRedeemProof(&cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()); err != nil {
-			fmt.Println("invalid zk redeem proof: ", err)
-			return nil, 0, err
-		}
-		statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-		statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
 	}
 
 	// Apply the transaction to the current state (included in the env)

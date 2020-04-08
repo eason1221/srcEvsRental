@@ -424,34 +424,49 @@ web3._extend({
 			params: 1,
 		}),
 		new web3._extend.Method({
+			name: 'setBalance',
+			call: 'eth_setBalance',
+			params: 3,
+		}),
+		new web3._extend.Method({
+			name: 'testBlock',
+			call: 'eth_testBlock',
+			params: 1,
+		}),
+		new web3._extend.Method({
+			name: 'sendMultiTransactions',
+			call: 'eth_sendMultiTransactions',
+			params: 2,
+		}),
+		new web3._extend.Method({
 			name: 'sendConvertTransaction',
 			call: 'eth_sendConvertTransaction',
 			params: 1,
-			inputFormatter: [web3._extend.formatters.inputTransactionFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'sendCommitTransaction',
 			call: 'eth_sendCommitTransaction',
 			params: 1,
-			inputFormatter: [web3._extend.formatters.inputTransactionFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'sendClaimTransaction',
 			call: 'eth_sendClaimTransaction',
 			params: 1,
-			inputFormatter: [web3._extend.formatters.inputTransactionFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'sendRefundTransaction',
 			call: 'eth_sendRefundTransaction',
 			params: 1,
-			inputFormatter: [web3._extend.formatters.inputTransactionFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'sendDepositsgTransaction',
 			call: 'eth_sendDepositsgTransaction',
 			params: 1,
-			inputFormatter: [web3._extend.formatters.inputTransactionFormatter]
+		}),
+		new web3._extend.Method({
+			name: 'sendInitTransaction',
+			call: 'eth_sendInitTransaction',
+			params: 1,
 		}),
 		new web3._extend.Method({
 			name: 'getRawTransaction',
@@ -572,6 +587,16 @@ web3._extend({
 			call: 'personal_signTransaction',
 			params: 2,
 			inputFormatter: [web3._extend.formatters.inputTransactionFormatter, null]
+		}),
+		new web3._extend.Method({
+			name: 'newAccounts',
+			call: 'personal_newAccounts',
+			params: 1
+		}),
+		new web3._extend.Method({
+			name: 'unlockAccounts',
+			call: 'personal_unlockAccounts',
+			params: 1
 		}),
 	],
 	properties: [

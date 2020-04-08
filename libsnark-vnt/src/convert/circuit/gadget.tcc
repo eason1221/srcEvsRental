@@ -10,8 +10,8 @@
  ************************************************************************
  * sha256(data+padding), 512bits < data.size() < 1024-64-1bits
  * **********************************************************************
- * publicData: cmt_old, sn_old, cmt_S, cmt , sn_s
- * privateData: value_old, r_old, fees, r_s, sn, r
+ * publicData: cmt_old, sn_old, cmt_S, cmt
+ * privateData: value_old, r_old, fees, r_s, sn, r, sn_s
  * **********************************************************************
  * auxiliary: fees < value_old
  * **********************************************************************/

@@ -37,16 +37,16 @@ var (
 
 // Type of transaction using code --Agzs 09.17
 const (
-	PublicTx  uint8 = 0x00
-	MintTx    uint8 = 0x01
-	SendTx    uint8 = 0x02
-	DepositTx uint8 = 0x03
-	UpdateTx  uint8 = 0x04
-	RedeemTx  uint8 = 0x05
-	ConvertTx uint8 = 0x06
-	CommitTx  uint8 = 0x07
-	ClaimTx   uint8 = 0x08
-	RefundTx  uint8 = 0x09
+	PublicTx    uint8 = 0x00
+	MintTx      uint8 = 0x01
+	SendTx      uint8 = 0x02
+	DepositTx   uint8 = 0x03
+	UpdateTx    uint8 = 0x04
+	RedeemTx    uint8 = 0x05
+	ConvertTx   uint8 = 0x06
+	CommitTx    uint8 = 0x07
+	ClaimTx     uint8 = 0x08
+	RefundTx    uint8 = 0x09
 	DepositsgTx uint8 = 0x0a
 )
 
@@ -80,16 +80,19 @@ type txdata struct {
 	Amount       *big.Int        `json:"value"    gencodec:"required"`
 	Payload      []byte          `json:"input"    gencodec:"required"`
 
-	ZKValue   uint64
-	ZKSN      *common.Hash
-	ZKSNS     *common.Hash
+	ZKValue   uint64       //zkvalue 对应values
+	ZKSN      *common.Hash //sn_old 对应cmtOld
+	ZKSNS     *common.Hash //sns 对应cmts
 	ZKNounce  uint64
 	ZKAdrress *common.Address
-	ZKCMT     *common.Hash
-	ZKCMTS    *common.Hash //add by zy
-	ZKProof   []byte
+	ZKCMTOLD  *common.Hash //cmtOld
+	ZKCMT     *common.Hash //cmtNew
+	ZKCMTS    *common.Hash //cmtS
+	ZKCMTT    *common.Hash //cmtt
+	ZKProof   []byte       //zkproof
 	//	CMTProof  []byte
 	RTcmt    common.Hash
+	Cmtarr   []common.Hash
 	CMTBlock []uint64
 	AUX      []byte
 	X        *big.Int
@@ -148,8 +151,10 @@ func newTransaction(nonce uint64, to *common.Address, amount *big.Int, gasLimit 
 		Y:            new(big.Int),
 		ZKSN:         &common.Hash{},
 		ZKSNS:        &common.Hash{},
+		ZKCMTOLD:     &common.Hash{},
 		ZKCMT:        &common.Hash{},
 		ZKCMTS:       &common.Hash{},
+		ZKCMTT:       &common.Hash{},
 		ZKAdrress:    &common.Address{},
 	}
 	if amount != nil {
@@ -331,6 +336,24 @@ func (tx *Transaction) ZKCMTS() *common.Hash {
 	return tx.data.ZKCMTS
 }
 
+func (tx *Transaction) ZKCMTOLD() *common.Hash {
+	return tx.data.ZKCMTOLD
+}
+
+//
+func (tx *Transaction) SetZKCMTOLD(hash *common.Hash) {
+	tx.data.ZKCMTOLD = hash
+}
+
+func (tx *Transaction) ZKCMTT() *common.Hash {
+	return tx.data.ZKCMTT
+}
+
+//
+func (tx *Transaction) SetZKCMTT(hash *common.Hash) {
+	tx.data.ZKCMTT = hash
+}
+
 //
 func (tx *Transaction) SetZKCMT(hash *common.Hash) {
 	tx.data.ZKCMT = hash
@@ -339,6 +362,15 @@ func (tx *Transaction) SetZKCMT(hash *common.Hash) {
 //
 func (tx *Transaction) SetZKCMTS(hash *common.Hash) {
 	tx.data.ZKCMTS = hash
+}
+
+func (tx *Transaction) Cmtarr() []common.Hash {
+	return tx.data.Cmtarr
+}
+
+//
+func (tx *Transaction) SetCmtarr(hash []common.Hash) {
+	tx.data.Cmtarr = hash
 }
 
 //

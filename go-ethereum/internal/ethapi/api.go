@@ -20,12 +20,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+
 	//"crypto/ecdsa"
+
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -43,7 +44,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/merkle"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -304,6 +304,34 @@ func (s *PrivateAccountAPI) NewAccount(password string) (common.Address, error) 
 		return acc.Address, nil
 	}
 	return common.Address{}, err
+}
+
+// NewAccounts will create n new accounts and returns the address array.
+func (s *PrivateAccountAPI) NewAccounts(ctx context.Context, n int) ([]common.Address, error) {
+	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
+	var unlockTime uint64 = 1000 * 60 * 60
+	if state == nil || err != nil {
+		return []common.Address{}, err
+	}
+	addr_arr := make([]common.Address, n)
+	for i := 0; i < n; i++ {
+		addr, err := s.NewAccount("")
+		if err != nil {
+			return nil, err
+		}
+		addr_arr[i] = addr
+		state.SetCMT(addr, &zktx.CmtA_old)
+		s.UnlockAccount(addr, "", &unlockTime)
+	}
+	return addr_arr, nil
+}
+
+//UnlockAccounts will unlock some account
+func (s *PrivateAccountAPI) UnlockAccounts(ctx context.Context, arr []common.Address) {
+	var unlockTime uint64 = 1000 * 60 * 60
+	for i := 0; i < len(arr); i++ {
+		s.UnlockAccount(arr[i], "", &unlockTime)
+	}
 }
 
 // fetchKeystore retrives the encrypted keystore from the account manager.
@@ -774,7 +802,7 @@ type StructLogRes struct {
 	Storage *map[string]string `json:"storage,omitempty"`
 }
 
-// formatLogs formats EVM returned structured logs for json output
+// FormatLogs formats EVM returned structured logs for json output
 func FormatLogs(logs []vm.StructLog) []StructLogRes {
 	formatted := make([]StructLogRes, len(logs))
 	for index, trace := range logs {
@@ -1155,14 +1183,29 @@ type SendTxArgs struct {
 	PubKey   *hexutil.Bytes  `json:"pubKey"`
 	// We accept "data" and "input" for backwards-compatibility reasons. "input" is the
 	// newer name and should be preferred by clients.
-	Data   *hexutil.Bytes `json:"data"`
-	Input  *hexutil.Bytes `json:"input"`
-	Key    string         `json:"key"`
-	TxHash common.Hash    `json:"txHash"`
+	Data  *hexutil.Bytes `json:"data"`
+	Input *hexutil.Bytes `json:"input"`
+	//add
+	Key    string      `json:"key"`
+	TxHash common.Hash `json:"txHash"`
 	// parameters of contract function
-	H0 common.Hash  `json:"h0"`
-	Hi common.Hash  `json:"hi"`
-	N  *hexutil.Big `json:"N"`
+	Fees         *hexutil.Big   `json:"fees"`      //user租车所用押金
+	Subcosts     *hexutil.Big   `json:"subcosts"`  //总租车费用
+	Subdists     *hexutil.Big   `json:"subdists"`  //所有user总租车里程
+	Disti        *hexutil.Big   `json:"disti"`     //单个user的租车里程
+	Costi        *hexutil.Big   `json:"costi"`     //单个user的租车费用
+	Refundi      *hexutil.Big   `json:"refundi"`   //单个user需要认领的剩余租车押金
+	addressowner common.Address `json:"addrowner"` //owner的账户地址
+	Cmtt         common.Hash    `json:"cmtt"`
+	//not used
+	H0     common.Hash      `json:"h0"`
+	Hi     common.Hash      `json:"hi"`
+	N      *hexutil.Big     `json:"N"`
+	HN     common.Hash      `json:"hN"`
+	AddrA  common.Address   `json:"addrA"`
+	SigA   *hexutil.Bytes   `json:"sigA"`
+	Froms  []common.Address `json:"froms"`
+	AddrAs []common.Address `json:"addrAs"`
 }
 
 // setDefaults is a helper function that fills in default values for unspecified tx fields.
@@ -1277,9 +1320,19 @@ func (s *PublicTransactionPoolAPI) SendPublicTransaction(ctx context.Context, ar
 	return submitTransaction(ctx, s.b, signed)
 }
 
-func GenZKProof() []byte {
-	return []byte{}
-
+//SetBalance Set balance for a group of accounts.
+func (s *PublicTransactionPoolAPI) SetBalance(ctx context.Context, from common.Address, to []common.Address, value *hexutil.Big) error {
+	var args SendTxArgs
+	args.From = from
+	args.Value = value
+	for i := 0; i < len(to); i++ {
+		args.To = &to[i]
+		_, err := s.SendPublicTransaction(ctx, args)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *PublicTransactionPoolAPI) StateDB(ctx context.Context) (*state.StateDB, error) {
@@ -1288,7 +1341,7 @@ func (s *PublicTransactionPoolAPI) StateDB(ctx context.Context) (*state.StateDB,
 	return state, err
 }
 
-//Generate a hashchain and return a string array including hash value No.0~N.
+//GenHashChain Generate a hashchain and return a string array including hash value No.0~N.
 func (s *PublicTransactionPoolAPI) GenHashChain(ctx context.Context, N uint64) []string {
 	h_N := *zktx.NewRandomHash()
 	hashList := make([]string, N+1)
@@ -1299,127 +1352,6 @@ func (s *PublicTransactionPoolAPI) GenHashChain(ctx context.Context, N uint64) [
 
 	}
 	return hashList
-}
-
-//================= zero-knowledge transactions ============================== --Agzs 09.17
-
-// SendMintTransaction creates a mint transaction for the given argument, sign it and submit it to the
-// transaction pool.
-func (s *PublicTransactionPoolAPI) SendMintTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
-	// if zktx.Stage == zktx.Send {
-	// 	fmt.Println("cannot send mintTx after sendTx")
-	// 	return common.Hash{}, nil
-	// }
-	if zktx.SNfile == nil {
-		fmt.Println("SNfile does not exist")
-		return common.Hash{}, nil
-	}
-	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
-		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
-		return common.Hash{}, nil
-	}
-	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-	if state == nil || err != nil {
-		return common.Hash{}, err
-	}
-
-	//check whether sn can be used
-	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
-
-	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
-		fmt.Println("sn is lost")
-		return common.Hash{}, nil
-	}
-
-	//check whether last tx is processed successfully
-	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
-
-	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
-		// if zktx.Stage == zktx.Update {
-		// 	fmt.Println("last transaction is update,but it is not well processed,please send updateTx firstly")
-		// 	return common.Hash{}, nil
-		// }
-		zktx.SequenceNumberAfter = zktx.SequenceNumber
-	}
-
-	// Look up the wallet containing the requested signer
-	account := accounts.Account{Address: args.From}
-	wallet, err := s.b.AccountManager().Find(account)
-	if err != nil {
-		return common.Hash{}, err
-	}
-
-	if args.Nonce == nil {
-		// Hold the addresse's mutex around signing to prevent concurrent assignment of
-		// the same nonce to multiple accounts.
-		s.nonceLock.LockAddr(args.From)
-		defer s.nonceLock.UnlockAddr(args.From)
-	}
-	args.To = &zktx.ZKTxAddress
-	// Set some sanity defaults and terminate on failure
-	if err := args.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
-	// Assemble the transaction and sign with the wallet
-	tx := args.toTransaction()
-	tx.SetTxCode(types.MintTx)
-	tx.SetZKValue(args.Value.ToInt().Uint64())
-	tx.SetPrice(big.NewInt(0))
-	tx.SetValue(big.NewInt(0))
-	tx.SetZKAddress(&zktx.ZKTxAddress)
-
-	SN := zktx.SequenceNumberAfter
-	tx.SetZKSN(SN.SN) //SN
-
-	newSN := zktx.NewRandomHash()
-	newRandom := zktx.NewRandomHash()
-	newValue := SN.Value + args.Value.ToInt().Uint64()
-
-	newCMT := zktx.GenCMT(newValue, newSN.Bytes(), newRandom.Bytes()) //tbd
-	tx.SetZKCMT(newCMT)                                               //cmt
-
-	balance := state.GetBalance(args.From)
-	if balance.Uint64() < tx.ZKValue() {
-		return common.Hash{}, errors.New("not enough balance")
-	}
-
-	zkProof := zktx.GenMintProof(SN.Value, SN.Random, newSN, newRandom, SN.CMT, SN.SN, newCMT, newValue)
-	if string(zkProof[0:10]) == "0000000000" {
-		return common.Hash{}, errors.New("can't generate proof")
-	}
-	tx.SetZKProof(zkProof) //proof tbd
-
-	var chainID *big.Int
-	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
-		chainID = config.ChainID
-	}
-
-	signed, err := wallet.SignTx(account, tx, chainID)
-	if err != nil {
-		return common.Hash{}, err
-	}
-
-	hash, err := submitTransaction(ctx, s.b, signed)
-	if err == nil {
-		zktx.SequenceNumber = zktx.SequenceNumberAfter
-		zktx.SequenceNumberAfter = &zktx.Sequence{SN: newSN, CMT: newCMT, Random: newRandom, Value: newValue}
-		zktx.Stage = zktx.Mint
-		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Mint}
-		SNSBytes, err := rlp.EncodeToBytes(SNS)
-
-		if err != nil {
-			fmt.Println("encode sns error")
-			return common.Hash{}, nil
-		}
-		SNSString := hex.EncodeToString(SNSBytes)
-		zktx.SNfile.Seek(0, 0) //write in the first line of the file
-		wt := bufio.NewWriter(zktx.SNfile)
-
-		wt.WriteString(SNSString)
-		wt.WriteString("\n") //write a line
-		wt.Flush()
-	}
-	return hash, err
 }
 
 func (s *PublicTransactionPoolAPI) GetKey(ctx context.Context, address common.Address, passwd string) (*accounts.Key, error) {
@@ -1453,56 +1385,300 @@ func (s *PublicTransactionPoolAPI) GetPubKeyRLP(ctx context.Context, address com
 	return common.ToHex(pp), err
 }
 
-// SendSendTransaction creates a send transaction for the given argument, sign it and submit it to the
-// transaction pool.
-// func (s *PublicTransactionPoolAPI) SendSendTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) { //tbd
-// 	// if zktx.Stage == zktx.Send {
-// 	// 	fmt.Println("cannot send sendTx after sendTx")
-// 	// 	return common.Hash{}, nil
-// 	// }
-// 	if zktx.SNfile == nil {
-// 		fmt.Println("SNfile does not exist")
-// 		return common.Hash{}, nil
+//------------Blockchain performance test------------
+func (s *PublicTransactionPoolAPI) TestBlockByHash(ctx context.Context, hash common.Hash) {
+
+	for true {
+		receipt, _ := s.GetTransactionReceipt(ctx, hash)
+		if receipt != nil && receipt["blockNumber"] != nil {
+			t := time.Now()
+			f := fmt.Sprintf("%d:%d:%d.%.3d\n", t.Hour(), t.Minute(), t.Second(), t.Nanosecond()/1000000)
+			zktx.AppendToFile("end_time.txt", f)
+			return
+		}
+	}
+}
+
+func (s *PublicTransactionPoolAPI) TestBlock(ctx context.Context, hashList []common.Hash) {
+	for i := 0; i < len(hashList); i++ {
+		go s.TestBlockByHash(ctx, hashList[i])
+	}
+}
+
+// //SendMultiTransactions function
+// func (s *PublicTransactionPoolAPI) SendMultiTransactions(ctx context.Context, number int, args SendTxArgs) ([]common.Hash, error) {
+// 	var hashList []common.Hash
+// 	switch number {
+// 	case 1:
+// 		for i := 0; i < len(args.Froms); i++ {
+// 			args.From = args.Froms[i]
+// 			hash, err := s.SendConvertTransaction(ctx, args)
+// 			hashList = append(hashList, hash)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 		}
+// 	case 21:
+// 		// bi-test
+// 		for i := 0; i < len(args.Froms); i++ {
+// 			args.From = args.Froms[i]
+// 			hash, err := s.SendCommitTransaction(ctx, args)
+// 			hashList = append(hashList, hash)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 		}
+// 	case 22:
+// 		// uni-test
+// 		h0 := zktx.H0
+// 		amount := big.NewInt(1000)
+// 		N := big.NewInt(1000)
+
+// 		//turn params to input of contract
+// 		func_name := "Commit(bytes32,uint256,uint256)"
+// 		func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+// 		h0_bytes := h0.Bytes()
+// 		amount_bytes := common.BigToHash(amount).Bytes()
+// 		N_bytes := common.BigToHash(N).Bytes()
+
+// 		var buffer bytes.Buffer
+// 		buffer.Write(func_keccak256)
+// 		buffer.Write(h0_bytes)
+// 		buffer.Write(amount_bytes)
+// 		buffer.Write(N_bytes)
+
+// 		input := buffer.Bytes()
+// 		args.Input = (*hexutil.Bytes)(&input)
+// 		args.Gas = new(hexutil.Uint64)
+// 		*(*uint64)(args.Gas) = 200000
+
+// 		args.Value = (*hexutil.Big)(big.NewInt(1000))
+
+// 		for i := 0; i < len(args.Froms); i++ {
+// 			args.From = args.Froms[i]
+// 			hash, err := s.SendPublicTransaction(ctx, args)
+// 			hashList = append(hashList, hash)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 		}
+// 	case 3:
+// 		for i := 0; i < len(args.Froms); i++ {
+// 			args.From = args.Froms[i]
+// 			args.AddrA = args.AddrAs[i]
+// 			hash, err := s.SendClaimTransaction(ctx, args)
+// 			hashList = append(hashList, hash)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 		}
+// 	case 4:
+// 		for i := 0; i < len(args.Froms); i++ {
+// 			args.From = args.Froms[i]
+// 			hash, err := s.SendRefundTransaction(ctx, args)
+// 			hashList = append(hashList, hash)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 		}
+// 	case 5:
+// 		for i := 0; i < len(args.Froms); i++ {
+// 			args.From = args.Froms[i]
+// 			hash, err := s.SendDepositsgTransaction(ctx, args)
+// 			hashList = append(hashList, hash)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 		}
 // 	}
 
-// 	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
-// 		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
-// 		return common.Hash{}, nil
-// 	}
-// 	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-// 	if state == nil || err != nil {
-// 		return common.Hash{}, err
-// 	}
+// 	return hashList, nil
+// }
 
-// 	//check whether sn can be used
-// 	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
+//SendMintTransaction function
+func (s *PublicTransactionPoolAPI) SendMintTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
 
-// 	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
-// 		fmt.Println("sn is lost")
-// 		return common.Hash{}, nil
-// 	}
+	// Look up the wallet containing the requested signer
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
 
-// 	//check whether last tx is processed successfully
-// 	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
+	if err != nil {
+		return common.Hash{}, err
+	}
+	if args.Nonce == nil {
+		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+		// the same nonce to multiple accounts.
+		s.nonceLock.LockAddr(args.From)
+		defer s.nonceLock.UnlockAddr(args.From)
+	}
+	args.To = zktx.NewRandomAddress()
+	// Set some sanity defaults and terminate on failure
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
 
-// 	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
-// 		// if zktx.Stage == zktx.Update {
-// 		// 	fmt.Println("last transaction is update,but it is not well processed,please send updateTx firstly")
-// 		// 	return common.Hash{}, nil
-// 		// }
-// 		zktx.SequenceNumberAfter = zktx.SequenceNumber
-// 	}
+	tx := args.toTransaction()
+	tx.SetTxCode(types.MintTx)
+	tx.SetZKValue(uint64(10000)) //Mint 要转化的零知识金额对应的明文金额value
+	tx.SetPrice(big.NewInt(0))
+	tx.SetValue(big.NewInt(0))
+	tx.SetZKAddress(&zktx.ZKTxAddress)
 
-// 	// Look up the wallet containing the requested signer
-// 	account := accounts.Account{Address: args.From}
-// 	wallet, err := s.b.AccountManager().Find(account)
-// 	if err != nil {
-// 		return common.Hash{}, err
-// 	}
-// 	_, err = s.b.AccountManager().Find(account)
-// 	if err != nil {
-// 		return common.Hash{}, err
-// 	}
+	tx.SetZKSN(&zktx.Sn_old) //SN_old
+	tx.SetZKCMTOLD(&zktx.CmtA_old)
+	tx.SetZKCMT(&zktx.CmtA)
+	tx.SetZKProof(zktx.Mint_proof)
+
+	var chainID *big.Int
+	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+		chainID = config.ChainID
+	}
+	signed, err := wallet.SignTx(account, tx, chainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	hash, err := submitTransaction(ctx, s.b, signed)
+	return hash, err
+}
+
+//SendInitTransaction function
+func (s *PublicTransactionPoolAPI) SendInitTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+
+	// Look up the wallet containing the requested signer
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+
+	if args.Nonce == nil {
+		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+		// the same nonce to multiple accounts.
+		s.nonceLock.LockAddr(args.From)
+		defer s.nonceLock.UnlockAddr(args.From)
+	}
+	// Set some sanity defaults and terminate on failure
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
+	//sendTransaction 所需参数
+	// fees := big.NewInt(args.Fees.ToInt().Int64())
+	// subcosts := big.NewInt(args.Subcosts.ToInt().Int64())
+	// subdists := big.NewInt(args.Subdists.ToInt().Int64())
+	// cmtt := common.HexToHash(args.Cmtt.String())
+
+	fees := big.NewInt(100)
+	subcosts := big.NewInt(80)
+	subdists := big.NewInt(20)
+	cmtt := common.HexToHash("0x89d7665dfb0512bbae245cda0bf423cab0de6f3445070ccc17dee262cc5083e1")
+
+	//turn params to input of contract
+	func_name := "Init(uint256,uint256,uint256,bytes32)"
+	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+	fees_bytes := common.BigToHash(fees).Bytes()
+	subcosts_bytes := common.BigToHash(subcosts).Bytes()
+	subdists_bytes := common.BigToHash(subdists).Bytes()
+	cmtt_bytes := cmtt.Bytes()
+
+	var buffer bytes.Buffer
+	buffer.Write(func_keccak256)
+	buffer.Write(fees_bytes)
+	buffer.Write(subcosts_bytes)
+	buffer.Write(subdists_bytes)
+	buffer.Write(cmtt_bytes)
+
+	input := buffer.Bytes()
+	args.Input = (*hexutil.Bytes)(&input)
+
+	*args.Gas = hexutil.Uint64(200000)
+	tx := args.toTransaction()
+	tx.SetTxCode(types.PublicTx)
+	tx.SetValue(big.NewInt(0))
+	// tx.SetZKAddress(&args.From)
+
+	var chainID *big.Int
+	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+		chainID = config.ChainID
+	}
+	signed, err := wallet.SignTx(account, tx, chainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+
+	hash, err := submitTransaction(ctx, s.b, signed)
+	return hash, err
+}
+
+// SendConvertTransaction function ||  Cost function
+func (s *PublicTransactionPoolAPI) SendConvertTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+
+	// Look up the wallet containing the requested signer
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+
+	if err != nil {
+		return common.Hash{}, err
+	}
+	if args.Nonce == nil {
+		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+		// the same nonce to multiple accounts.
+		s.nonceLock.LockAddr(args.From)
+		defer s.nonceLock.UnlockAddr(args.From)
+	}
+	args.To = zktx.NewRandomAddress()
+	// Set some sanity defaults and terminate on failure
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
+
+	tx := args.toTransaction()
+	tx.SetTxCode(types.ConvertTx)
+	tx.SetPrice(big.NewInt(0))
+	tx.SetValue(big.NewInt(0))
+	tx.SetZKAddress(&zktx.ZKTxAddress)
+
+	//生成cmtold
+	valueold := big.NewInt(1000)
+	snold := zktx.NewRandomHash()
+	rold := zktx.NewRandomHash()
+	CMTold := zktx.GenCMT(valueold.Uint64(), snold.Bytes(), rold.Bytes())
+
+	//生成cmts
+	SNs := zktx.NewRandomHash()
+	newRs := zktx.NewRandomHash()
+	CMTs := zktx.GenCMT(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes())
+
+	//生成cmt
+	newSNA := zktx.NewRandomHash()
+	newRandomA := zktx.NewRandomHash()
+	newValueA := valueold.Uint64() - args.Value.ToInt().Uint64()
+	newCMTA := zktx.GenCMT(newValueA, newSNA.Bytes(), newRandomA.Bytes())
+
+	//验证proof用的参数
+	tx.SetZKCMTOLD(CMTold)
+	tx.SetZKCMTS(CMTs)
+	tx.SetZKCMT(newCMTA)
+	tx.SetZKSNS(SNs)
+	tx.SetZKSN(snold) //SN_old
+
+	zkProof := zktx.GenConvertProof(CMTold, valueold.Uint64(), rold, args.Value.ToInt().Uint64(), SNs, newRs, snold, CMTs, newValueA, newSNA, newRandomA, newCMTA)
+	if string(zkProof[0:10]) == "0000000000" {
+		return common.Hash{}, errors.New("can't generate proof")
+	}
+	tx.SetZKProof(zkProof)
+
+	// 	zktx.SNS = &zktx.Sequence{SN: SNs, CMT: CMTs, Random: newRs, Value: args.Value.ToInt().Uint64()}
+	var chainID *big.Int
+	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+		chainID = config.ChainID
+	}
+	signed, err := wallet.SignTx(account, tx, chainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	hash, err := submitTransaction(ctx, s.b, signed)
+	return hash, err
+}
+
+// //SendCommitTransaction function
+// func (s *PublicTransactionPoolAPI) SendCommitTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
 
 // 	if args.Nonce == nil {
 // 		// Hold the addresse's mutex around signing to prevent concurrent assignment of
@@ -1510,316 +1686,361 @@ func (s *PublicTransactionPoolAPI) GetPubKeyRLP(ctx context.Context, address com
 // 		s.nonceLock.LockAddr(args.From)
 // 		defer s.nonceLock.UnlockAddr(args.From)
 // 	}
-// 	args.To = &zktx.ZKTxAddress
 // 	// Set some sanity defaults and terminate on failure
 // 	if err := args.setDefaults(ctx, s.b); err != nil {
 // 		return common.Hash{}, err
 // 	}
-// 	// Assemble the transaction and sign with the wallet
+
+// 	h0 := zktx.H0
+// 	cmtC := zktx.CmtC
+// 	N := big.NewInt(1000)
+
+// 	//turn params to input of contract
+// 	func_name := "Commit(bytes32,bytes32,uint256)"
+// 	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+// 	h0_bytes := h0.Bytes()
+// 	cmtC_bytes := cmtC.Bytes()
+// 	N_bytes := common.BigToHash(N).Bytes()
+
+// 	var buffer bytes.Buffer
+// 	buffer.Write(func_keccak256)
+// 	buffer.Write(h0_bytes)
+// 	buffer.Write(cmtC_bytes)
+// 	buffer.Write(N_bytes)
+
+// 	input := buffer.Bytes()
+// 	args.Input = (*hexutil.Bytes)(&input)
+
+// 	*args.Gas = hexutil.Uint64(200000)
 // 	tx := args.toTransaction()
-// 	tx.SetTxCode(types.SendTx)
-// 	tx.SetPrice(big.NewInt(0))
+// 	tx.SetTxCode(types.CommitTx)
 // 	tx.SetValue(big.NewInt(0))
-// 	// randomAddress := zktx.NewRandomAddress()
-// 	tx.SetZKAddress(&zktx.ZKTxAddress)
-// 	//tx.SetNonce(0)
+// 	tx.SetZKAddress(&args.From) //?
 
-// 	SN := zktx.SequenceNumberAfter
-// 	tx.SetZKSN(SN.SN) //SN
-
-// 	if len(*args.PubKey) != PubKeySize {
-// 		return common.Hash{}, errors.New("invalid receiver pubkey")
-// 	}
-
-// 	type pub struct {
-// 		X *big.Int
-// 		Y *big.Int
-// 	}
-
-// 	var pubKey pub
-
-// 	rlp.DecodeBytes(*args.PubKey, &pubKey) //--zy
-
-// 	receiverPubkey := &ecdsa.PublicKey{crypto.S256(), pubKey.X, pubKey.Y}
-
-// 	R := zktx.GenR()
-// 	Sa := R.D
-
-// 	randomReceiverPK := zktx.NewRandomPubKey(Sa, *receiverPubkey)
-
-// 	zktx.RandomReceiverPK = randomReceiverPK //store randomReceiverPK for update
-
-// 	randomPK := R.PublicKey
-// 	tx.SetPubKey(randomPK.X, randomPK.Y)
-
-// 	SNs := zktx.NewRandomHash()
-// 	newRs := zktx.NewRandomHash()
-
-// 	CMTs := zktx.GenCMTS(args.Value.ToInt().Uint64(), randomReceiverPK, SNs.Bytes(), newRs.Bytes(), SN.SN.Bytes()) //生成cmts
-// 	tx.SetZKCMTS(CMTs)
-// 	//add by zy
-// 	newSNA := zktx.NewRandomHash()                                        //A新sn
-// 	newRandomA := zktx.NewRandomHash()                                    //A 新 r
-// 	newValueA := SN.Value - args.Value.ToInt().Uint64()                   //update后 A新value
-// 	newCMTA := zktx.GenCMT(newValueA, newSNA.Bytes(), newRandomA.Bytes()) //A 新 cmt
-// 	tx.SetZKCMT(newCMTA)
-// 	//tx.SetZKAddress(&args.From)
-
-// 	zkProof := []byte{}
-// 	//zkProof := zktx.GenSendProof(SN.CMT, SN.Value, SN.Random, args.Value.ToInt().Uint64(), randomReceiverPK, SNs, newRs, SN.SN, CMTs, newValueA, newSNA, newRandomA, newCMTA)
-// 	if string(zkProof[0:10]) == "0000000000" {
-// 		return common.Hash{}, errors.New("can't generate proof")
-// 	}
-// 	tx.SetZKProof(zkProof) //proof tbd
-// 	AUX := zktx.ComputeAUX(randomReceiverPK, args.Value.ToInt().Uint64(), SNs, newRs, SN.SN)
-
-// 	tx.SetAUX(AUX)
-// 	zktx.SNS = &zktx.Sequence{SN: SNs, CMT: CMTs, Random: newRs, Value: args.Value.ToInt().Uint64()}
-
-// 	var chainID *big.Int
-// 	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
-// 		chainID = config.ChainID
-// 	}
-
-// 	signed, err := wallet.SignTx(account, tx, chainID)
-// 	if err != nil {
-// 		return common.Hash{}, err
-// 	}
-
-// 	hash, err := submitTransaction(ctx, s.b, signed)
-// 	// if err == nil {
-// 	// 	zktx.Stage = zktx.Send
-// 	// 	SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, zktx.RandomReceiverPK.X,zktx.RandomReceiverPK.Y, zktx.Send}
-// 	// 	SNSBytes, err := rlp.EncodeToBytes(SNS)
-// 	// 	if err != nil {
-// 	// 		fmt.Println("encode sns error")
-// 	// 		return common.Hash{}, nil
-// 	// 	}
-// 	// 	SNSString := hex.EncodeToString(SNSBytes)
-// 	// 	zktx.SNfile.Seek(0, 0) //write in the first line of the file
-// 	// 	wt := bufio.NewWriter(zktx.SNfile)
-
-// 	// 	wt.WriteString(SNSString)
-// 	// 	wt.WriteString("\n") //write a line
-// 	// 	wt.Flush()
-// 	// }
-// 	//add by zy
-// 	if err == nil {
-// 		zktx.Stage = zktx.Send
-// 		zktx.SequenceNumber = zktx.SequenceNumberAfter
-// 		zktx.SequenceNumberAfter = &zktx.Sequence{SN: newSNA, CMT: newCMTA, Random: newRandomA, Value: newValueA}
-// 		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Send}
-// 		SNSBytes, err := rlp.EncodeToBytes(SNS)
-// 		if err != nil {
-// 			fmt.Println("encode sns error")
-// 			return common.Hash{}, nil
+// 	var cmtarray []common.Hash
+// 	for i := 0; i < 32; i++ {
+// 		if i == 9 {
+// 			cmtarray = append(cmtarray, zktx.CmtS)
+// 		} else {
+// 			cmt := common.HexToHash(zktx.Cmt_str[i])
+// 			cmtarray = append(cmtarray, cmt)
 // 		}
-// 		SNSString := hex.EncodeToString(SNSBytes)
-// 		zktx.SNfile.Seek(0, 0) //write in the first line of the file
-// 		wt := bufio.NewWriter(zktx.SNfile)
-
-// 		wt.WriteString(SNSString)
-// 		wt.WriteString("\n") //write a line
-// 		wt.Flush()
-// 	}
-// 	return hash, err
-
-// }
-
-// SendDepositTransaction creates a Deposit transaction for the given argument, sign it and submit it to the
-// transaction pool.
-// func (s *PublicTransactionPoolAPI) SendDepositTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
-// 	// if zktx.Stage == zktx.Send {
-// 	// 	fmt.Println("cannot send DepositTx after sendTx")  //修改方案后无影响
-// 	// 	return common.Hash{}, nil
-// 	// }
-// 	if zktx.SNfile == nil {
-// 		fmt.Println("SNfile does not exist")
-// 		return common.Hash{}, nil
-// 	}
-// 	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
-// 		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
-// 		return common.Hash{}, nil
-// 	}
-// 	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-// 	if state == nil || err != nil {
-// 		return common.Hash{}, err
 // 	}
 
-// 	//check whether sn can be used
-// 	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
-
-// 	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
-// 		fmt.Println("sn is lost")
-// 		return common.Hash{}, nil
-// 	}
-
-// 	//check whether last tx is processed successfully
-// 	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
-
-// 	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
-// 		// if zktx.Stage == zktx.Update {
-// 		// 	fmt.Println("last transaction is update,but it is not well processed,please send updateTx firstly")
-// 		// 	return common.Hash{}, nil
-// 		// }
-// 		zktx.SequenceNumberAfter = zktx.SequenceNumber
-// 	}
-
-// 	// Look up the wallet containing the requested signer
-// 	account := accounts.Account{Address: args.From}
-// 	_, err = s.b.AccountManager().Find(account)
-// 	if err != nil {
-// 		return common.Hash{}, err
-// 	}
-
-// 	if args.Nonce == nil {
-// 		// Hold the addresse's mutex around signing to prevent concurrent assignment ofnil
-// 		// the same nonce to multiple accounts.
-// 		s.nonceLock.LockAddr(args.From)
-// 		defer s.nonceLock.UnlockAddr(args.From)
-// 	}
-// 	key := args.Key
-// 	args.To = &args.From
-// 	// Set some sanity defaults and terminate on failure
-// 	if err := args.setDefaults(ctx, s.b); err != nil {
-// 		return common.Hash{}, err
-// 	}
-// 	// Assemble the transaction and sign with the wallet
-// 	tx := args.toTransaction()
-// 	tx.SetTxCode(types.DepositTx)
-// 	tx.SetPrice(big.NewInt(0))
-// 	tx.SetValue(big.NewInt(0))
-// 	tx.SetZKAddress(&args.From)
-
-// 	txSend := s.GetTransactionByHash2(ctx, args.TxHash)
-// 	if txSend == nil {
-// 		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
-// 	}
-
-// 	RPCtx := s.GetTransactionByHash(ctx, args.TxHash)
-// 	if RPCtx == nil {
-// 		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
-// 	}
-
-// 	cmtBlockNumber := (*big.Int)(RPCtx.BlockNumber)
-// 	var cmtBlockNumbers []uint64
-// 	var CMTSForMerkle []*common.Hash
-// 	BlockToCmt := make(map[uint64][]*common.Hash)
-
-// 	block, err := s.b.BlockByNumber(ctx, rpc.LatestBlockNumber)
-// 	if block == nil {
-// 		return common.Hash{}, err
-// 	}
-
-// 	cmtBlockNumbers = append(cmtBlockNumbers, cmtBlockNumber.Uint64())
-// 	block2, err := s.b.BlockByNumber(ctx, rpc.BlockNumber(cmtBlockNumber.Uint64()))
-// 	BlockToCmt[cmtBlockNumber.Uint64()] = block2.CMTS()
-
-// 	// latest header should always be available
-// 	latestBlockNumber := block.NumberU64()
-// 	count := len(block2.CMTS())
-// loop:
-// 	for count < zktx.ZKCMTNODES {
-// 		if len(cmtBlockNumbers) > int(latestBlockNumber) {
-// 			return common.Hash{}, errors.New("insufficient cmts for merkle tree")
-// 		}
-// 		blockNum := uint64(rand.Int63n(int64(latestBlockNumber + 1)))
-// 		for i, _ := range cmtBlockNumbers {
-// 			if cmtBlockNumbers[i] == blockNum {
-// 				goto loop
-// 			}
-// 		}
-// 		block, err = s.b.BlockByNumber(ctx, rpc.BlockNumber(blockNum))
-// 		if block == nil {
-// 			return common.Hash{}, err
-// 		}
-// 		cmts := block.CMTS()
-// 		BlockToCmt[blockNum] = cmts
-// 		//	CMTSForMerkle = append(CMTSForMerkle, cmts...)
-// 		cmtBlockNumbers = append(cmtBlockNumbers, blockNum)
-// 		count += len(cmts)
-// 	}
-
-// 	merkle.QuickSortUint64(cmtBlockNumbers)
-
-// 	for i, _ := range cmtBlockNumbers {
-// 		index := cmtBlockNumbers[i]
-// 		CMTSForMerkle = append(CMTSForMerkle, BlockToCmt[index]...)
-// 	}
-
-// 	RTcmt := zktx.GenRT(CMTSForMerkle)
-// 	tx.SetRTcmt(RTcmt)
-
-// 	tx.SetCMTBlocks(cmtBlockNumbers)
-
-// 	keyB, err := s.GetKey(ctx, args.From, key)
-// 	if err != nil {
-// 		return common.Hash{}, err
-// 	}
-
-// 	Rx, Ry := txSend.R()
-// 	R := ecdsa.PublicKey{Curve: crypto.S256(), X: Rx, Y: Ry} //计算
-// 	PKB := ecdsa.PublicKey{Curve: keyB.Cureve, X: keyB.X, Y: keyB.Y}
-// 	KB := ecdsa.PrivateKey{PKB, keyB.PrivateKey}
-// 	randomKeyB := zktx.GenerateKeyForRandomB(&R, &KB)
-
-// 	AUXA := txSend.AUX()
-// 	valueS, sns, rs, sna := zktx.DecAUX(&randomKeyB.PublicKey, AUXA) //--zy
-// 	if valueS <= 0 {
-// 		return common.Hash{}, errors.New("transfer amount must be larger than 0")
-// 	}
-
-// 	SNb := zktx.SequenceNumberAfter
-// 	tx.SetZKSN(SNb.SN)
-
-// 	newSN := zktx.NewRandomHash()
-// 	newRandom := zktx.NewRandomHash()
-// 	newValue := SNb.Value + valueS
-// 	newCMTB := zktx.GenCMT(newValue, newSN.Bytes(), newRandom.Bytes())
-// 	tx.SetZKCMT(newCMTB)
-// 	tx.SetPubKey(randomKeyB.X, randomKeyB.Y)
-
-// 	zkProof := zktx.GenDepositProof(txSend.ZKCMTS(), valueS, sns, rs, sna, SNb.Value, SNb.Random, newSN, newRandom, &randomKeyB.PublicKey, RTcmt.Bytes(), SNb.CMT, SNb.SN, newCMTB, CMTSForMerkle)
-// 	if string(zkProof[0:10]) == "0000000000" {
-// 		return common.Hash{}, errors.New("can't generate proof")
-// 	}
-// 	tx.SetZKProof(zkProof) //proof tbd
-
-// 	address := crypto.PubkeyToAddress(randomKeyB.PublicKey)
-// 	exist = state.Exist(address)
-// 	if exist == true {
-// 		fmt.Println("pubkeyb cat not be used for a second time")
-// 		return common.Hash{}, nil
-// 	}
-// 	//fmt.Println("randomKeyB:", randomKeyB.D.BitLen())
-// 	signedTx, errSignedTx := types.SignTx(tx, types.HomesteadSigner{}, randomKeyB)
-
-// 	if errSignedTx != nil {
-// 		fmt.Println("sign depost tx failed: ", errSignedTx)
-// 		return common.Hash{}, errSignedTx
-// 	}
-
-// 	hash, err := submitTransaction(ctx, s.b, signedTx)
-// 	if err == nil {
-// 		zktx.SequenceNumber = zktx.SequenceNumberAfter
-// 		zktx.SequenceNumberAfter = &zktx.Sequence{SN: newSN, CMT: newCMTB, Random: newRandom, Value: newValue}
-// 		zktx.Stage = zktx.Deposit
-// 		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Deposit}
-// 		SNSBytes, err := rlp.EncodeToBytes(SNS)
-// 		if err != nil {
-// 			fmt.Println("encode sns error")
-// 			return common.Hash{}, nil
-// 		}
-// 		SNSString := hex.EncodeToString(SNSBytes)
-// 		zktx.SNfile.Seek(0, 0) //write in the first line of the file
-// 		wt := bufio.NewWriter(zktx.SNfile)
-
-// 		wt.WriteString(SNSString)
-// 		wt.WriteString("\n") //write a line
-// 		wt.Flush()
-// 	}
+// 	tx.SetCmtarr(cmtarray)
+// 	tx.SetRTcmt(zktx.RT)
+// 	tx.SetZKSNS(&zktx.Sn_s)
+// 	tx.SetZKCMT(&zktx.CmtC)
+// 	tx.SetZKProof(zktx.Commit_proof)
+// 	hash, err := submitTransaction(ctx, s.b, tx)
 // 	return hash, err
 // }
+
+//SendClaimTransaction function || user divide
+func (s *PublicTransactionPoolAPI) SendClaimTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+
+	if args.Nonce == nil {
+		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+		// the same nonce to multiple accounts.
+		s.nonceLock.LockAddr(args.From)
+		defer s.nonceLock.UnlockAddr(args.From)
+	}
+	// Set some sanity defaults and terminate on failure
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
+
+	disti := big.NewInt(args.Disti.ToInt().Int64())
+	costi := big.NewInt(80 * args.Disti.ToInt().Int64() / 20) //subdist ==  20
+	refundi := big.NewInt(100 - 80*args.Disti.ToInt().Int64()/20)
+
+	//turn params to input of contract
+	func_name := "Divide(uint256,uint256,address)"
+	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+	disti_bytes := common.BigToHash(disti).Bytes()
+	refund_bytes := common.BigToHash(refundi).Bytes()
+	addr_bytes := args.addressowner.Hash().Bytes()
+
+	var buffer bytes.Buffer
+	buffer.Write(func_keccak256)
+	buffer.Write(disti_bytes)
+	buffer.Write(refund_bytes)
+	buffer.Write(addr_bytes)
+
+	input := buffer.Bytes()
+	args.Input = (*hexutil.Bytes)(&input)
+
+	*args.Gas = hexutil.Uint64(200000)
+	tx := args.toTransaction()
+	tx.SetTxCode(types.ClaimTx)
+	tx.SetValue(big.NewInt(0))
+	tx.SetZKAddress(&args.From)
+
+	//生成cmts = sha(refundi | sns |  rs)
+	SNs := zktx.NewRandomHash()
+	newRs := zktx.NewRandomHash()
+	CMTs := zktx.GenCMT(refundi.Uint64(), SNs.Bytes(), newRs.Bytes())
+
+	//生成cmtt = sha(cost | r)
+	rC := zktx.NewRandomHash()
+	cmtT := zktx.GenCMT2(uint64(80), rC.Bytes())
+
+	zkProof := zktx.GenClaimProof(costi.Uint64(), uint64(80), disti.Uint64(), uint64(20), uint64(100), refundi.Uint64(), SNs, newRs, CMTs, rC, cmtT)
+	if string(zkProof[0:10]) == "0000000000" {
+		return common.Hash{}, errors.New("can't generate proof")
+	}
+
+	tx.SetZKProof(zkProof) //proof tbd
+	tx.SetZKValue(refundi.Uint64())
+	tx.SetZKCMTS(CMTs) //cmtc
+	tx.SetZKCMT(cmtT)  //cmtt
+	hash, err := submitTransaction(ctx, s.b, tx)
+	return hash, err
+}
+
+// SendDepositsgTransaction function || owner collect
+func (s *PublicTransactionPoolAPI) SendDepositsgTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+
+	// Look up the wallet containing the requested signer
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+
+	if err != nil {
+		return common.Hash{}, err
+	}
+
+	if args.Nonce == nil {
+		// Hold the addresse's mutex around signing to prevent concurrent assignment ofnil
+		// the same nonce to multiple accounts.
+		s.nonceLock.LockAddr(args.From)
+		defer s.nonceLock.UnlockAddr(args.From)
+	}
+	// Set some sanity defaults and terminate on failure
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
+
+	subcost := big.NewInt(args.Value.ToInt().Int64()) //subcost ==  80
+	cmtso := common.HexToHash("0x89d7665dfb0512bbae245cda0bf423cab0de6f3445070ccc17dee262cc5083e1")
+
+	//turn params to input of contract
+	func_name := "Collect(uint256,bytes32)"
+	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+	cost_bytes := common.BigToHash(subcost).Bytes()
+	cmtso_bytes := cmtso.Bytes()
+
+	var buffer bytes.Buffer
+	buffer.Write(func_keccak256)
+	buffer.Write(cost_bytes)
+	buffer.Write(cmtso_bytes)
+
+	input := buffer.Bytes()
+	args.Input = (*hexutil.Bytes)(&input)
+	*args.Gas = hexutil.Uint64(200000)
+
+	// Assemble the transaction and sign with the wallet
+	tx := args.toTransaction()
+	tx.SetTxCode(types.DepositsgTx)
+	tx.SetPrice(big.NewInt(0))
+	tx.SetValue(big.NewInt(0))
+	tx.SetZKAddress(&args.From)
+
+	//生成cmtold
+	valueold := big.NewInt(1000)
+	snold := zktx.NewRandomHash()
+	rold := zktx.NewRandomHash()
+	CMTold := zktx.GenCMT(valueold.Uint64(), snold.Bytes(), rold.Bytes())
+
+	//生成cmts
+	SNs := zktx.NewRandomHash()
+	newRs := zktx.NewRandomHash()
+	CMTs := zktx.GenCMT(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes())
+
+	//生成cmt,混淆cmts
+	VALUES := big.NewInt(100)
+	SNS := zktx.NewRandomHash()
+	RS := zktx.NewRandomHash()
+	CMTS := zktx.GenCMT(VALUES.Uint64(), SNS.Bytes(), RS.Bytes())
+
+	//生成cmt
+	newSNA := zktx.NewRandomHash()
+	newRandomA := zktx.NewRandomHash()
+	newValueA := valueold.Uint64() + args.Value.ToInt().Uint64()
+	newCMTA := zktx.GenCMT(newValueA, newSNA.Bytes(), newRandomA.Bytes())
+
+	//生成cmtt
+	newRandom := zktx.NewRandomHash()
+	newValue := args.Value.ToInt().Uint64()
+	newCMTT := zktx.GenCMT2(newValue, newRandom.Bytes())
+
+	var cmtarray []*common.Hash
+	for i := 0; i < 32; i++ {
+		if i == 9 {
+			cmts := common.HexToHash(CMTs.String())
+			cmtarray = append(cmtarray, &cmts)
+		} else {
+			cmt := common.HexToHash(CMTS.String())
+			cmtarray = append(cmtarray, &cmt)
+		}
+	}
+
+	var cmtarr []common.Hash
+	for i := 0; i < 32; i++ {
+		if i == 9 {
+			cmts := common.HexToHash(CMTs.String())
+			cmtarr = append(cmtarr, cmts)
+		} else {
+			cmt := common.HexToHash(CMTS.String())
+			cmtarr = append(cmtarr, cmt)
+		}
+	}
+
+	NewRT := zktx.GenRT(cmtarray)
+
+	zkProof := zktx.GenDepositsgProof(newRandom, newCMTT, args.Value.ToInt().Uint64(), SNs, newRs, CMTs, valueold.Uint64(), snold, rold, CMTold, newSNA, newRandomA, newCMTA, NewRT.Bytes(), cmtarray)
+	if string(zkProof[0:10]) == "0000000000" {
+		return common.Hash{}, errors.New("can't generate proof")
+	}
+	tx.SetZKProof(zkProof) //proof tbd
+	tx.SetZKSNS(SNs)
+	tx.SetZKCMTS(CMTs)
+	tx.SetZKSN(snold)
+	tx.SetZKCMTOLD(CMTold)
+	tx.SetZKCMT(newCMTA)
+	tx.SetZKCMTT(newCMTT)
+	tx.SetRTcmt(NewRT)
+	tx.SetCmtarr(cmtarr)
+
+	var chainID *big.Int
+	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+		chainID = config.ChainID
+	}
+	signed, err := wallet.SignTx(account, tx, chainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	hash, err := submitTransaction(ctx, s.b, signed)
+	return hash, err
+}
+
+//SendRefundTransaction function || user refund
+func (s *PublicTransactionPoolAPI) SendRefundTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+	// Look up the wallet containing the requested signer
+	account := accounts.Account{Address: args.From}
+	wallet, err := s.b.AccountManager().Find(account)
+
+	if args.Nonce == nil {
+		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+		// the same nonce to multiple accounts.
+		s.nonceLock.LockAddr(args.From)
+		defer s.nonceLock.UnlockAddr(args.From)
+	}
+	// Set some sanity defaults and terminate on failure
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
+
+	refundi := big.NewInt(args.Value.ToInt().Int64()) //refundi
+	cmtsu := common.HexToHash("0x89d7665dfb0512bbae245cda0bf423cab0de6f3445070ccc17dee262cc5083e1")
+
+	//turn params to input of contract
+	func_name := "Refund(uint256,bytes32)"
+	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+	refundi_bytes := common.BigToHash(refundi).Bytes()
+	cmtsu_bytes := cmtsu.Bytes()
+
+	var buffer bytes.Buffer
+	buffer.Write(func_keccak256)
+	buffer.Write(refundi_bytes)
+	buffer.Write(cmtsu_bytes)
+
+	input := buffer.Bytes()
+	args.Input = (*hexutil.Bytes)(&input)
+
+	*args.Gas = hexutil.Uint64(200000)
+	tx := args.toTransaction()
+	tx.SetTxCode(types.RefundTx)
+	tx.SetPrice(big.NewInt(0))
+	tx.SetValue(big.NewInt(0))
+	// tx.SetZKAddress(&args.From)
+
+	//生成cmtold
+	valueold := big.NewInt(1000)
+	snold := zktx.NewRandomHash()
+	rold := zktx.NewRandomHash()
+	CMTold := zktx.GenCMT(valueold.Uint64(), snold.Bytes(), rold.Bytes())
+
+	//生成cmts
+	SNs := zktx.NewRandomHash()
+	newRs := zktx.NewRandomHash()
+	CMTs := zktx.GenCMT(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes())
+
+	//生成cmt,混淆cmts
+	VALUES := big.NewInt(100)
+	SNS := zktx.NewRandomHash()
+	RS := zktx.NewRandomHash()
+	CMTS := zktx.GenCMT(VALUES.Uint64(), SNS.Bytes(), RS.Bytes())
+
+	//生成cmt
+	newSNA := zktx.NewRandomHash()
+	newRandomA := zktx.NewRandomHash()
+	newValueA := valueold.Uint64() + args.Value.ToInt().Uint64()
+	newCMTA := zktx.GenCMT(newValueA, newSNA.Bytes(), newRandomA.Bytes())
+
+	var cmtarray []*common.Hash
+	for i := 0; i < 32; i++ {
+		if i == 9 {
+			cmts := common.HexToHash(CMTs.String())
+			cmtarray = append(cmtarray, &cmts)
+		} else {
+			cmt := common.HexToHash(CMTS.String())
+			cmtarray = append(cmtarray, &cmt)
+		}
+	}
+
+	var cmtarr []common.Hash
+	for i := 0; i < 32; i++ {
+		if i == 9 {
+			cmts := common.HexToHash(CMTs.String())
+			cmtarr = append(cmtarr, cmts)
+		} else {
+			cmt := common.HexToHash(CMTS.String())
+			cmtarr = append(cmtarr, cmt)
+		}
+	}
+
+	NewRT := zktx.GenRT(cmtarray)
+
+	zkProof := zktx.GenDepositProof(uint64(100), uint64(32), args.Value.ToInt().Uint64(), SNs, newRs, CMTs, valueold.Uint64(), snold, rold, CMTold, newSNA, newRandomA, newCMTA, NewRT.Bytes(), cmtarray)
+	if string(zkProof[0:10]) == "0000000000" {
+		return common.Hash{}, errors.New("can't generate proof")
+	}
+
+	tx.SetZKValue(args.Value.ToInt().Uint64())
+	tx.SetZKCMTS(CMTs)
+	tx.SetZKSNS(SNs)
+	tx.SetZKCMT(newCMTA)
+	tx.SetZKSN(snold)
+	tx.SetZKCMTOLD(CMTold)
+	tx.SetRTcmt(NewRT)
+	tx.SetCmtarr(cmtarr)
+	tx.SetZKProof(zkProof)
+	tx.SetZKAddress(&args.From)
+
+	var chainID *big.Int
+	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+		chainID = config.ChainID
+	}
+	signed, err := wallet.SignTx(account, tx, chainID)
+	if err != nil {
+		return common.Hash{}, err
+	}
+
+	hash, err := submitTransaction(ctx, s.b, signed)
+	return hash, err
+}
+
+//--------------------------Blockchain performance test-----------------------
 
 // SendRedeemTransaction creates a Redeem transaction for the given argument, sign it and submit it to the
 // transaction pool.
@@ -1939,805 +2160,806 @@ func (s *PublicTransactionPoolAPI) SendRedeemTransaction(ctx context.Context, ar
 
 // SendConvertTransaction creates a convert transaction for the given argument, sign it and submit it to the
 // transaction pool.
-func (s *PublicTransactionPoolAPI) SendConvertTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) { //tbd
+// func (s *PublicTransactionPoolAPI) SendConvertTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) { //tbd
 
-	if zktx.SNfile == nil {
-		fmt.Println("SNfile does not exist")
-		return common.Hash{}, nil
-	}
+// 	if zktx.SNfile == nil {
+// 		fmt.Println("SNfile does not exist")
+// 		return common.Hash{}, nil
+// 	}
 
-	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
-		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
-		return common.Hash{}, nil
-	}
-	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-	if state == nil || err != nil {
-		return common.Hash{}, err
-	}
+// 	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
+// 		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
+// 		return common.Hash{}, nil
+// 	}
+// 	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
+// 	if state == nil || err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	//check whether sn can be used
-	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
+// 	//check whether sn can be used
+// 	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
 
-	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
-		fmt.Println("sn is lost")
-		return common.Hash{}, nil
-	}
+// 	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
+// 		fmt.Println("sn is lost")
+// 		return common.Hash{}, nil
+// 	}
 
-	//check whether last tx is processed successfully
-	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
+// 	//check whether last tx is processed successfully
+// 	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
 
-	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
+// 	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
 
-		zktx.SequenceNumberAfter = zktx.SequenceNumber
-	}
+// 		zktx.SequenceNumberAfter = zktx.SequenceNumber
+// 	}
 
-	// Look up the wallet containing the requested signer
-	account := accounts.Account{Address: args.From}
-	wallet, err := s.b.AccountManager().Find(account)
-	if err != nil {
-		return common.Hash{}, err
-	}
-	_, err = s.b.AccountManager().Find(account)
-	if err != nil {
-		return common.Hash{}, err
-	}
+// 	// Look up the wallet containing the requested signer
+// 	account := accounts.Account{Address: args.From}
+// 	wallet, err := s.b.AccountManager().Find(account)
+// 	if err != nil {
+// 		return common.Hash{}, err
+// 	}
+// 	_, err = s.b.AccountManager().Find(account)
+// 	if err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	if args.Nonce == nil {
-		// Hold the addresse's mutex around signing to prevent concurrent assignment of
-		// the same nonce to multiple accounts.
-		s.nonceLock.LockAddr(args.From)
-		defer s.nonceLock.UnlockAddr(args.From)
-	}
-	args.To = &zktx.ZKTxAddress
-	// Set some sanity defaults and terminate on failure
-	if err := args.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
-	// Assemble the transaction and sign with the wallet
-	tx := args.toTransaction()
-	tx.SetTxCode(types.ConvertTx)
-	tx.SetPrice(big.NewInt(0))
-	tx.SetValue(big.NewInt(0))
-	tx.SetZKAddress(&zktx.ZKTxAddress)
+// 	if args.Nonce == nil {
+// 		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+// 		// the same nonce to multiple accounts.
+// 		s.nonceLock.LockAddr(args.From)
+// 		defer s.nonceLock.UnlockAddr(args.From)
+// 	}
+// 	args.To = &zktx.ZKTxAddress
+// 	// Set some sanity defaults and terminate on failure
+// 	if err := args.setDefaults(ctx, s.b); err != nil {
+// 		return common.Hash{}, err
+// 	}
+// 	// Assemble the transaction and sign with the wallet
+// 	tx := args.toTransaction()
+// 	tx.SetTxCode(types.ConvertTx)
+// 	tx.SetPrice(big.NewInt(0))
+// 	tx.SetValue(big.NewInt(0))
+// 	tx.SetZKAddress(&zktx.ZKTxAddress)
 
-	SN := zktx.SequenceNumberAfter
-	tx.SetZKSN(SN.SN) //SN
+// 	SN := zktx.SequenceNumberAfter
+// 	tx.SetZKSN(SN.SN) //SN
 
-	type pub struct {
-		X *big.Int
-		Y *big.Int
-	}
+// 	type pub struct {
+// 		X *big.Int
+// 		Y *big.Int
+// 	}
 
-	SNs := zktx.NewRandomHash()
-	newRs := zktx.NewRandomHash()
+// 	SNs := zktx.NewRandomHash()
+// 	newRs := zktx.NewRandomHash()
 
-	CMTs := zktx.GenCMT_1(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes(), SN.SN.Bytes()) //生成cmts
-	tx.SetZKCMTS(CMTs)
+// 	CMTs := zktx.GenCMT_1(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes(), SN.SN.Bytes()) //生成cmts
+// 	tx.SetZKCMTS(CMTs)
 
-	newSNA := zktx.NewRandomHash()                                        //A新sn
-	newRandomA := zktx.NewRandomHash()                                    //A 新 r
-	newValueA := SN.Value - args.Value.ToInt().Uint64()                   //convert后 A新value
-	newCMTA := zktx.GenCMT(newValueA, newSNA.Bytes(), newRandomA.Bytes()) //A 新 cmt
-	tx.SetZKCMT(newCMTA)
+// 	newSNA := zktx.NewRandomHash()                                        //A新sn
+// 	newRandomA := zktx.NewRandomHash()                                    //A 新 r
+// 	newValueA := SN.Value - args.Value.ToInt().Uint64()                   //convert后 A新value
+// 	newCMTA := zktx.GenCMT(newValueA, newSNA.Bytes(), newRandomA.Bytes()) //A 新 cmt
+// 	tx.SetZKCMT(newCMTA)
 
-	zkProof := zktx.GenConvertProof(SN.CMT, SN.Value, SN.Random, args.Value.ToInt().Uint64(), SNs, newRs, SN.SN, CMTs, newValueA, newSNA, newRandomA, newCMTA)
-	if string(zkProof[0:10]) == "0000000000" {
-		return common.Hash{}, errors.New("can't generate proof")
-	}
-	tx.SetZKProof(zkProof) //proof tbd
+// 	zkProof := zktx.GenConvertProof(SN.CMT, SN.Value, SN.Random, args.Value.ToInt().Uint64(), SNs, newRs, SN.SN, CMTs, newValueA, newSNA, newRandomA, newCMTA)
+// 	if string(zkProof[0:10]) == "0000000000" {
+// 		return common.Hash{}, errors.New("can't generate proof")
+// 	}
+// 	tx.SetZKProof(zkProof) //proof tbd
 
-	zktx.SNS = &zktx.Sequence{SN: SNs, CMT: CMTs, Random: newRs, Value: args.Value.ToInt().Uint64()}
+// 	zktx.SNS = &zktx.Sequence{SN: SNs, CMT: CMTs, Random: newRs, Value: args.Value.ToInt().Uint64()}
 
-	var chainID *big.Int
-	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
-		chainID = config.ChainID
-	}
+// 	var chainID *big.Int
+// 	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+// 		chainID = config.ChainID
+// 	}
 
-	signed, err := wallet.SignTx(account, tx, chainID)
-	if err != nil {
-		return common.Hash{}, err
-	}
+// 	signed, err := wallet.SignTx(account, tx, chainID)
+// 	if err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	hash, err := submitTransaction(ctx, s.b, signed)
+// 	hash, err := submitTransaction(ctx, s.b, signed)
 
-	if err == nil {
-		zktx.Stage = zktx.Convert
-		zktx.SequenceNumber = zktx.SequenceNumberAfter
-		zktx.SequenceNumberAfter = &zktx.Sequence{SN: newSNA, CMT: newCMTA, Random: newRandomA, Value: newValueA}
-		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Convert}
-		SNSBytes, err := rlp.EncodeToBytes(SNS)
-		if err != nil {
-			fmt.Println("encode sns error")
-			return common.Hash{}, nil
-		}
-		SNSString := hex.EncodeToString(SNSBytes)
-		zktx.SNfile.Seek(0, 0) //write in the first line of the file
-		wt := bufio.NewWriter(zktx.SNfile)
+// 	if err == nil {
+// 		zktx.Stage = zktx.Convert
+// 		zktx.SequenceNumber = zktx.SequenceNumberAfter
+// 		zktx.SequenceNumberAfter = &zktx.Sequence{SN: newSNA, CMT: newCMTA, Random: newRandomA, Value: newValueA}
+// 		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Convert}
+// 		SNSBytes, err := rlp.EncodeToBytes(SNS)
+// 		if err != nil {
+// 			fmt.Println("encode sns error")
+// 			return common.Hash{}, nil
+// 		}
+// 		SNSString := hex.EncodeToString(SNSBytes)
+// 		zktx.SNfile.Seek(0, 0) //write in the first line of the file
+// 		wt := bufio.NewWriter(zktx.SNfile)
 
-		wt.WriteString(SNSString)
-		wt.WriteString("\n") //write a line
-		wt.Flush()
-	}
-	return hash, err
+// 		wt.WriteString(SNSString)
+// 		wt.WriteString("\n") //write a line
+// 		wt.Flush()
+// 	}
+// 	return hash, err
 
-}
+// }
 
 // SendCommitTransaction creates a Commit transaction for the given argument, sign it and submit it to the
 // transaction pool.
-func (s *PublicTransactionPoolAPI) SendCommitTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
-	// if zktx.Stage != zktx.Convert {
-	// 	fmt.Println("Can't commit without convert")
-	// 	return common.Hash{}, nil
-	// }
-	if zktx.SNfile == nil {
-		fmt.Println("SNfile does not exist")
-		return common.Hash{}, nil
-	}
-	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
-		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
-		return common.Hash{}, nil
-	}
-	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-	if state == nil || err != nil {
-		return common.Hash{}, err
-	}
+// func (s *PublicTransactionPoolAPI) SendCommitTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
 
-	//check whether sn can be used
-	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
+// 	if zktx.SNfile == nil {
+// 		fmt.Println("SNfile does not exist")
+// 		return common.Hash{}, nil
+// 	}
+// 	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
+// 		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
+// 		return common.Hash{}, nil
+// 	}
+// 	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
+// 	if state == nil || err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
-		fmt.Println("sn is lost")
-		return common.Hash{}, nil
-	}
+// 	//check whether sn can be used
+// 	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
 
-	//check whether last tx is processed successfully
-	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
+// 	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
+// 		fmt.Println("sn is lost")
+// 		return common.Hash{}, nil
+// 	}
 
-	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
-		// if zktx.Stage == zktx.Update {
-		// 	fmt.Println("last transaction is update,but it is not well processed,please send updateTx firstly")
-		// 	return common.Hash{}, nil
-		// }
-		zktx.SequenceNumberAfter = zktx.SequenceNumber
-	}
+// 	//check whether last tx is processed successfully
+// 	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
 
-	// Look up the wallet containing the requested signer
-	account := accounts.Account{Address: args.From}
-	_, err = s.b.AccountManager().Find(account)
-	if err != nil {
-		return common.Hash{}, err
-	}
+// 	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
+// 		// if zktx.Stage == zktx.Update {
+// 		// 	fmt.Println("last transaction is update,but it is not well processed,please send updateTx firstly")
+// 		// 	return common.Hash{}, nil
+// 		// }
+// 		zktx.SequenceNumberAfter = zktx.SequenceNumber
+// 	}
 
-	if args.Nonce == nil {
-		// Hold the addresse's mutex around signing to prevent concurrent assignment ofnil
-		// the same nonce to multiple accounts.
-		s.nonceLock.LockAddr(args.From)
-		defer s.nonceLock.UnlockAddr(args.From)
-	}
+// 	// Look up the wallet containing the requested signer
+// 	account := accounts.Account{Address: args.From}
+// 	_, err = s.b.AccountManager().Find(account)
+// 	if err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	// Set some sanity defaults and terminate on failure
-	if err := args.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
+// 	if args.Nonce == nil {
+// 		// Hold the addresse's mutex around signing to prevent concurrent assignment ofnil
+// 		// the same nonce to multiple accounts.
+// 		s.nonceLock.LockAddr(args.From)
+// 		defer s.nonceLock.UnlockAddr(args.From)
+// 	}
 
-	h0 := args.H0
-	amount := args.Value
-	N := args.N
-	//turn params to input of contract
-	func_name := "Commit(bytes32,uint256,uint256)"
-	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-	h0_bytes := h0.Bytes()
-	amount_bytes := common.HexToHash(amount.String()).Bytes()
-	N_bytes := common.HexToHash(N.String()).Bytes()
+// 	// Set some sanity defaults and terminate on failure
+// 	if err := args.setDefaults(ctx, s.b); err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	var buffer bytes.Buffer
-	buffer.Write(func_keccak256)
-	buffer.Write(h0_bytes)
-	buffer.Write(amount_bytes)
-	buffer.Write(N_bytes)
+// 	h0 := args.H0
+// 	amount := args.Value
+// 	N := args.N
+// 	addrA := args.AddrA
 
-	input := buffer.Bytes()
-	args.Input = (*hexutil.Bytes)(&input)
+// 	//turn params to input of contract
+// 	func_name := "Commit(bytes32,uint256,uint256,address)"
+// 	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+// 	h0_bytes := h0.Bytes()
+// 	amount_bytes := common.HexToHash(amount.String()).Bytes()
+// 	N_bytes := common.HexToHash(N.String()).Bytes()
+// 	addrA_bytes := addrA.Hash().Bytes()
 
-	// Assemble the transaction
-	*(*uint64)(args.Gas) = 160000
-	tx := args.toTransaction()
-	tx.SetTxCode(types.CommitTx)
-	args.Gas = new(hexutil.Uint64)
-	tx.SetPrice(big.NewInt(1))
-	tx.SetValue(big.NewInt(0))
+// 	var buffer bytes.Buffer
+// 	buffer.Write(func_keccak256)
+// 	buffer.Write(h0_bytes)
+// 	buffer.Write(amount_bytes)
+// 	buffer.Write(N_bytes)
+// 	buffer.Write(addrA_bytes)
 
-	//randAddr := zktx.NewRandomAddress()
-	tx.SetZKAddress(&args.From)
+// 	input := buffer.Bytes()
+// 	args.Input = (*hexutil.Bytes)(&input)
 
-	txSend := s.GetTransactionByHash2(ctx, args.TxHash)
-	if txSend == nil {
-		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
-	} else if txSend.Code() != types.ConvertTx {
-		return common.Hash{}, errors.New("Wrong transaction, the inputed transaction is not a Convert transaction!" + args.TxHash.String())
-	}
+// 	// Assemble the transaction
+// 	*(*uint64)(args.Gas) = 200000
+// 	tx := args.toTransaction()
+// 	tx.SetTxCode(types.CommitTx)
+// 	args.Gas = new(hexutil.Uint64)
+// 	tx.SetPrice(big.NewInt(1))
+// 	tx.SetValue(big.NewInt(0))
 
-	RPCtx := s.GetTransactionByHash(ctx, args.TxHash)
-	if RPCtx == nil {
-		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
-	}
+// 	//randAddr := zktx.NewRandomAddress()
+// 	tx.SetZKAddress(&args.From)
 
-	cmtBlockNumber := (*big.Int)(RPCtx.BlockNumber)
-	var cmtBlockNumbers []uint64
-	var CMTSForMerkle []*common.Hash
-	BlockToCmt := make(map[uint64][]*common.Hash)
+// 	txSend := s.GetTransactionByHash2(ctx, args.TxHash)
+// 	if txSend == nil {
+// 		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
+// 	} else if txSend.Code() != types.ConvertTx {
+// 		return common.Hash{}, errors.New("Wrong transaction, the inputed transaction is not a Convert transaction!" + args.TxHash.String())
+// 	}
 
-	block, err := s.b.BlockByNumber(ctx, rpc.LatestBlockNumber)
-	if block == nil {
-		return common.Hash{}, err
-	}
+// 	RPCtx := s.GetTransactionByHash(ctx, args.TxHash)
+// 	if RPCtx == nil {
+// 		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
+// 	}
 
-	cmtBlockNumbers = append(cmtBlockNumbers, cmtBlockNumber.Uint64())
-	block2, err := s.b.BlockByNumber(ctx, rpc.BlockNumber(cmtBlockNumber.Uint64()))
-	BlockToCmt[cmtBlockNumber.Uint64()] = block2.CMTS()
+// 	cmtBlockNumber := (*big.Int)(RPCtx.BlockNumber)
+// 	var cmtBlockNumbers []uint64
+// 	var CMTSForMerkle []*common.Hash
+// 	BlockToCmt := make(map[uint64][]*common.Hash)
 
-	// latest header should always be available
-	latestBlockNumber := block.NumberU64()
-	count := len(block2.CMTS())
-loop:
-	for count < zktx.ZKCMTNODES {
-		if len(cmtBlockNumbers) > int(latestBlockNumber) {
-			return common.Hash{}, errors.New("insufficient cmts for merkle tree")
-		}
-		blockNum := uint64(rand.Int63n(int64(latestBlockNumber + 1)))
-		for i, _ := range cmtBlockNumbers {
-			if cmtBlockNumbers[i] == blockNum {
-				goto loop
-			}
-		}
-		block, err = s.b.BlockByNumber(ctx, rpc.BlockNumber(blockNum))
-		if block == nil {
-			return common.Hash{}, err
-		}
-		cmts := block.CMTS()
-		BlockToCmt[blockNum] = cmts
-		//	CMTSForMerkle = append(CMTSForMerkle, cmts...)
-		cmtBlockNumbers = append(cmtBlockNumbers, blockNum)
-		count += len(cmts)
-	}
+// 	block, err := s.b.BlockByNumber(ctx, rpc.LatestBlockNumber)
+// 	if block == nil {
+// 		return common.Hash{}, err
+// 	}
 
-	merkle.QuickSortUint64(cmtBlockNumbers)
+// 	cmtBlockNumbers = append(cmtBlockNumbers, cmtBlockNumber.Uint64())
+// 	block2, err := s.b.BlockByNumber(ctx, rpc.BlockNumber(cmtBlockNumber.Uint64()))
+// 	BlockToCmt[cmtBlockNumber.Uint64()] = block2.CMTS()
 
-	for i, _ := range cmtBlockNumbers {
-		index := cmtBlockNumbers[i]
-		CMTSForMerkle = append(CMTSForMerkle, BlockToCmt[index]...)
-	}
+// 	// latest header should always be available
+// 	latestBlockNumber := block.NumberU64()
+// 	count := len(block2.CMTS())
+// loop:
+// 	for count < zktx.ZKCMTNODES {
+// 		if len(cmtBlockNumbers) > int(latestBlockNumber) {
+// 			return common.Hash{}, errors.New("insufficient cmts for merkle tree")
+// 		}
+// 		blockNum := uint64(rand.Int63n(int64(latestBlockNumber + 1)))
+// 		for i, _ := range cmtBlockNumbers {
+// 			if cmtBlockNumbers[i] == blockNum {
+// 				goto loop
+// 			}
+// 		}
+// 		block, err = s.b.BlockByNumber(ctx, rpc.BlockNumber(blockNum))
+// 		if block == nil {
+// 			return common.Hash{}, err
+// 		}
+// 		cmts := block.CMTS()
+// 		BlockToCmt[blockNum] = cmts
+// 		//	CMTSForMerkle = append(CMTSForMerkle, cmts...)
+// 		cmtBlockNumbers = append(cmtBlockNumbers, blockNum)
+// 		count += len(cmts)
+// 	}
 
-	RTcmt := zktx.GenRT(CMTSForMerkle)
-	tx.SetRTcmt(RTcmt)
+// 	merkle.QuickSortUint64(cmtBlockNumbers)
 
-	tx.SetCMTBlocks(cmtBlockNumbers)
+// 	for i, _ := range cmtBlockNumbers {
+// 		index := cmtBlockNumbers[i]
+// 		CMTSForMerkle = append(CMTSForMerkle, BlockToCmt[index]...)
+// 	}
 
-	valueS := args.Value.ToInt().Uint64()
-	tx.SetZKValue(valueS)
+// 	RTcmt := zktx.GenRT(CMTSForMerkle)
+// 	tx.SetRTcmt(RTcmt)
 
-	//cmts from local
-	selfCmts := zktx.SNS
-	sns := selfCmts.SN
-	rs := selfCmts.Random
-	tx.SetZKSNS(sns)
+// 	tx.SetCMTBlocks(cmtBlockNumbers)
 
-	SNa := zktx.SequenceNumber
-	snA := SNa.SN
+// 	valueS := args.Value.ToInt().Uint64()
+// 	tx.SetZKValue(valueS)
 
-	// newSN := zktx.NewRandomHash()
-	// newRandom := zktx.NewRandomHash()
-	// newValue := SNb.Value + valueS
-	// newCMTB := zktx.GenCMT(newValue, newSN.Bytes(), newRandom.Bytes())
-	// tx.SetZKCMT(newCMTB)
+// 	//cmts from local
+// 	selfCmts := zktx.SNS
+// 	sns := selfCmts.SN
+// 	rs := selfCmts.Random
+// 	tx.SetZKSNS(sns)
 
-	zkProof := zktx.GenCommitProof(valueS, sns, rs, snA, txSend.ZKCMTS(), RTcmt.Bytes(), CMTSForMerkle)
-	if string(zkProof[0:10]) == "0000000000" {
-		return common.Hash{}, errors.New("can't generate proof")
-	}
-	tx.SetZKProof(zkProof) //proof tbd
+// 	SNa := zktx.SequenceNumber
+// 	snA := SNa.SN
 
-	//fmt.Println("randomKeyB:", randomKeyB.D.BitLen())
-	//signedTx, errSignedTx := types.SignTx(tx, types.HomesteadSigner{}, randomKeyB)
+// 	// newSN := zktx.NewRandomHash()
+// 	// newRandom := zktx.NewRandomHash()
+// 	// newValue := SNb.Value + valueS
+// 	// newCMTB := zktx.GenCMT(newValue, newSN.Bytes(), newRandom.Bytes())
+// 	// tx.SetZKCMT(newCMTB)
 
-	// if errSignedTx != nil {
-	// 	fmt.Println("sign depost tx failed: ", errSignedTx)
-	// 	return common.Hash{}, errSignedTx
-	// }
+// 	zkProof := zktx.GenCommitProof(valueS, sns, rs, snA, txSend.ZKCMTS(), RTcmt.Bytes(), CMTSForMerkle)
+// 	if string(zkProof[0:10]) == "0000000000" {
+// 		return common.Hash{}, errors.New("can't generate proof")
+// 	}
+// 	tx.SetZKProof(zkProof) //proof tbd
 
-	hash, err := submitTransaction(ctx, s.b, tx)
-	if err == nil {
-		zktx.Stage = zktx.Commit
-		// SNS := zktx.SequenceS{*(zktx.InitializeSN()), *(zktx.InitializeSN()), zktx.SNS, nil, nil, zktx.Commit}
-		// SNSBytes, err := rlp.EncodeToBytes(SNS)
-		// if err != nil {
-		// 	fmt.Println("encode sns error")
-		// 	return common.Hash{}, nil
-		// }
-		// SNSString := hex.EncodeToString(SNSBytes)
-		// zktx.SNfile.Seek(0, 0) //write in the first line of the file
-		// wt := bufio.NewWriter(zktx.SNfile)
+// 	//fmt.Println("randomKeyB:", randomKeyB.D.BitLen())
+// 	//signedTx, errSignedTx := types.SignTx(tx, types.HomesteadSigner{}, randomKeyB)
 
-		// wt.WriteString(SNSString)
-		// wt.WriteString("\n") //write a line
-		// wt.Flush()
-	}
-	return hash, err
-}
+// 	// if errSignedTx != nil {
+// 	// 	fmt.Println("sign depost tx failed: ", errSignedTx)
+// 	// 	return common.Hash{}, errSignedTx
+// 	// }
+
+// 	hash, err := submitTransaction(ctx, s.b, tx)
+// 	if err == nil {
+// 		zktx.Stage = zktx.Commit
+// 		SNS := zktx.SequenceS{*(zktx.InitializeSN()), *(zktx.InitializeSN()), zktx.SNS, nil, nil, zktx.Commit}
+// 		SNSBytes, err := rlp.EncodeToBytes(SNS)
+// 		if err != nil {
+// 			fmt.Println("encode sns error")
+// 			return common.Hash{}, nil
+// 		}
+// 		SNSString := hex.EncodeToString(SNSBytes)
+// 		zktx.SNfile.Seek(0, 0) //write in the first line of the file
+// 		wt := bufio.NewWriter(zktx.SNfile)
+
+// 		wt.WriteString(SNSString)
+// 		wt.WriteString("\n") //write a line
+// 		wt.Flush()
+// 	}
+// 	return hash, err
+// }
 
 // SendClaimTransaction creates a Claim transaction for the given argument.
-func (s *PublicTransactionPoolAPI) SendClaimTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) { //tbd
+// func (s *PublicTransactionPoolAPI) SendClaimTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) { //tbd
 
-	if zktx.SNfile == nil {
-		fmt.Println("SNfile does not exist")
-		return common.Hash{}, nil
-	}
+// 	if zktx.SNfile == nil {
+// 		fmt.Println("SNfile does not exist")
+// 		return common.Hash{}, nil
+// 	}
 
-	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
-		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
-		return common.Hash{}, nil
-	}
-	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-	if state == nil || err != nil {
-		return common.Hash{}, err
-	}
+// 	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
+// 		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
+// 		return common.Hash{}, nil
+// 	}
+// 	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
+// 	if state == nil || err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	//check whether sn can be used
-	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
+// 	//check whether sn can be used
+// 	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
 
-	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
-		fmt.Println("sn is lost")
-		return common.Hash{}, nil
-	}
+// 	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
+// 		fmt.Println("sn is lost")
+// 		return common.Hash{}, nil
+// 	}
 
-	//check whether last tx is processed successfully
-	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
+// 	//check whether last tx is processed successfully
+// 	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
 
-	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
+// 	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
 
-		zktx.SequenceNumberAfter = zktx.SequenceNumber
-	}
+// 		zktx.SequenceNumberAfter = zktx.SequenceNumber
+// 	}
 
-	// Look up the wallet containing the requested signer
-	//account := accounts.Account{Address: args.From}
-	//wallet, err := s.b.AccountManager().Find(account)
-	// if err != nil {
-	// 	return common.Hash{}, err
-	// }
-	// _, err = s.b.AccountManager().Find(account)
-	// if err != nil {
-	// 	return common.Hash{}, err
-	// }
+// 	if args.Nonce == nil {
+// 		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+// 		// the same nonce to multiple accounts.
+// 		s.nonceLock.LockAddr(args.From)
+// 		defer s.nonceLock.UnlockAddr(args.From)
+// 	}
+// 	// Set some sanity defaults and terminate on failure
+// 	if err := args.setDefaults(ctx, s.b); err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	if args.Nonce == nil {
-		// Hold the addresse's mutex around signing to prevent concurrent assignment of
-		// the same nonce to multiple accounts.
-		s.nonceLock.LockAddr(args.From)
-		defer s.nonceLock.UnlockAddr(args.From)
-	}
-	// Set some sanity defaults and terminate on failure
-	if err := args.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
+// 	hi := args.Hi
+// 	values := args.Value
 
-	hi := args.Hi
-	values := args.Value
+// 	h0 := args.H0
+// 	hN := args.HN
+// 	N := args.N
+// 	sigA := ([]byte)(*args.SigA)
 
-	SNs := zktx.NewRandomHash()
-	newRs := zktx.NewRandomHash()
-	CMTs := zktx.GenCMT(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes()) //生成cmts
+// 	SNs := zktx.NewRandomHash()
+// 	newRs := zktx.NewRandomHash()
+// 	CMTs := zktx.GenCMT(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes()) //生成cmts
 
-	//turn params to input of contract
-	func_name := "Claim(bytes32,uint256,bytes32)"
-	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-	hi_bytes := hi.Bytes()
-	value_bytes := common.HexToHash(values.String()).Bytes()
-	cmts_bytes := CMTs.Bytes()
+// 	//turn params to input of contract
+// 	func_name := "Claim(bytes32,uint256,bytes32,bytes32,bytes32,uint256,uint8,bytes32,bytes32)"
+// 	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+// 	hi_bytes := hi.Bytes()
+// 	value_bytes := common.HexToHash(values.String()).Bytes()
+// 	cmts_bytes := CMTs.Bytes()
+// 	h0_bytes := h0.Bytes()
+// 	hN_bytes := hN.Bytes()
+// 	N_bytes := common.HexToHash(N.String()).Bytes()
 
-	var buffer bytes.Buffer
-	buffer.Write(func_keccak256)
-	buffer.Write(hi_bytes)
-	buffer.Write(value_bytes)
-	buffer.Write(cmts_bytes)
+// 	if len(sigA) != 65 {
+// 		return common.Hash{}, errors.New("Wrong Signature length!")
+// 	}
+// 	sig_v := make([]byte, 32)
+// 	sig_v[31] = sigA[64] + 27
+// 	sig_r := sigA[0:32]
+// 	sig_s := sigA[32:64]
 
-	input := buffer.Bytes()
-	args.Input = (*hexutil.Bytes)(&input)
+// 	var buffer bytes.Buffer
+// 	buffer.Write(func_keccak256)
+// 	buffer.Write(hi_bytes)
+// 	buffer.Write(value_bytes)
+// 	buffer.Write(cmts_bytes)
+// 	buffer.Write(h0_bytes)
+// 	buffer.Write(hN_bytes)
+// 	buffer.Write(N_bytes)
+// 	buffer.Write(sig_v)
+// 	buffer.Write(sig_r)
+// 	buffer.Write(sig_s)
 
-	// Assemble the transaction
-	*(*uint64)(args.Gas) = 150000
-	tx := args.toTransaction()
-	tx.SetTxCode(types.ClaimTx)
-	tx.SetPrice(big.NewInt(1))
-	tx.SetValue(big.NewInt(0))
-	tx.SetZKValue(args.Value.ToInt().Uint64())
-	tx.SetZKCMTS(CMTs)
+// 	input := buffer.Bytes()
+// 	args.Input = (*hexutil.Bytes)(&input)
 
-	//randAddr := zktx.NewRandomAddress()
-	tx.SetZKAddress(&args.From)
+// 	// Assemble the transaction
+// 	*(*uint64)(args.Gas) = 900000
+// 	tx := args.toTransaction()
+// 	tx.SetTxCode(types.ClaimTx)
+// 	tx.SetPrice(big.NewInt(1))
+// 	tx.SetValue(big.NewInt(0))
+// 	tx.SetZKValue(args.Value.ToInt().Uint64())
+// 	tx.SetZKCMTS(CMTs)
 
-	zkProof := zktx.GenClaimProof(args.Value.ToInt().Uint64(), SNs, newRs, CMTs)
-	if string(zkProof[0:10]) == "0000000000" {
-		return common.Hash{}, errors.New("can't generate proof")
-	}
-	tx.SetZKProof(zkProof) //proof tbd
+// 	//randAddr := zktx.NewRandomAddress()
+// 	tx.SetZKAddress(&args.From)
 
-	zktx.SNS = &zktx.Sequence{SN: SNs, CMT: CMTs, Random: newRs, Value: args.Value.ToInt().Uint64()}
+// 	zkProof := zktx.GenClaimProof(args.Value.ToInt().Uint64(), SNs, newRs, CMTs)
+// 	if string(zkProof[0:10]) == "0000000000" {
+// 		return common.Hash{}, errors.New("can't generate proof")
+// 	}
+// 	tx.SetZKProof(zkProof) //proof tbd
 
-	// var chainID *big.Int
-	// if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
-	// 	chainID = config.ChainID
-	// }
+// 	zktx.SNS = &zktx.Sequence{SN: SNs, CMT: CMTs, Random: newRs, Value: args.Value.ToInt().Uint64()}
 
-	//signed, err := wallet.SignTx(account, tx, chainID)
-	if err != nil {
-		return common.Hash{}, err
-	}
+// 	// var chainID *big.Int
+// 	// if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+// 	// 	chainID = config.ChainID
+// 	// }
 
-	hash, err := submitTransaction(ctx, s.b, tx)
+// 	//signed, err := wallet.SignTx(account, tx, chainID)
+// 	if err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	if err == nil {
-		zktx.Stage = zktx.Claim
-		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Claim}
-		SNSBytes, err := rlp.EncodeToBytes(SNS)
-		if err != nil {
-			fmt.Println("encode sns error")
-			return common.Hash{}, nil
-		}
-		SNSString := hex.EncodeToString(SNSBytes)
-		zktx.SNfile.Seek(0, 0) //write in the first line of the file
-		wt := bufio.NewWriter(zktx.SNfile)
+// 	hash, err := submitTransaction(ctx, s.b, tx)
 
-		wt.WriteString(SNSString)
-		wt.WriteString("\n") //write a line
-		wt.Flush()
-	}
-	return hash, err
+// 	if err == nil {
+// 		zktx.Stage = zktx.Claim
+// 		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Claim}
+// 		SNSBytes, err := rlp.EncodeToBytes(SNS)
+// 		if err != nil {
+// 			fmt.Println("encode sns error")
+// 			return common.Hash{}, nil
+// 		}
+// 		SNSString := hex.EncodeToString(SNSBytes)
+// 		zktx.SNfile.Seek(0, 0) //write in the first line of the file
+// 		wt := bufio.NewWriter(zktx.SNfile)
 
-}
+// 		wt.WriteString(SNSString)
+// 		wt.WriteString("\n") //write a line
+// 		wt.Flush()
+// 	}
+// 	return hash, err
+
+// }
 
 // SendRefundTransaction creates a Refund transaction for the given argument.
-func (s *PublicTransactionPoolAPI) SendRefundTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) { //tbd
+// func (s *PublicTransactionPoolAPI) SendRefundTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) { //tbd
 
-	if zktx.SNfile == nil {
-		fmt.Println("SNfile does not exist")
-		return common.Hash{}, nil
-	}
+// 	if zktx.SNfile == nil {
+// 		fmt.Println("SNfile does not exist")
+// 		return common.Hash{}, nil
+// 	}
 
-	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
-		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
-		return common.Hash{}, nil
-	}
-	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-	if state == nil || err != nil {
-		return common.Hash{}, err
-	}
+// 	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
+// 		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
+// 		return common.Hash{}, nil
+// 	}
+// 	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
+// 	if state == nil || err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	//check whether sn can be used
-	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
+// 	//check whether sn can be used
+// 	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
 
-	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
-		fmt.Println("sn is lost")
-		return common.Hash{}, nil
-	}
+// 	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
+// 		fmt.Println("sn is lost")
+// 		return common.Hash{}, nil
+// 	}
 
-	//check whether last tx is processed successfully
-	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
+// 	//check whether last tx is processed successfully
+// 	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
 
-	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
+// 	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
 
-		zktx.SequenceNumberAfter = zktx.SequenceNumber
-	}
+// 		zktx.SequenceNumberAfter = zktx.SequenceNumber
+// 	}
 
-	// Look up the wallet containing the requested signer
-	//account := accounts.Account{Address: args.From}
-	//wallet, err := s.b.AccountManager().Find(account)
-	// if err != nil {
-	// 	return common.Hash{}, err
-	// }
-	// _, err = s.b.AccountManager().Find(account)
-	// if err != nil {
-	// 	return common.Hash{}, err
-	// }
+// 	if args.Nonce == nil {
+// 		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+// 		// the same nonce to multiple accounts.
+// 		s.nonceLock.LockAddr(args.From)
+// 		defer s.nonceLock.UnlockAddr(args.From)
+// 	}
+// 	// Set some sanity defaults and terminate on failure
+// 	if err := args.setDefaults(ctx, s.b); err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	if args.Nonce == nil {
-		// Hold the addresse's mutex around signing to prevent concurrent assignment of
-		// the same nonce to multiple accounts.
-		s.nonceLock.LockAddr(args.From)
-		defer s.nonceLock.UnlockAddr(args.From)
-	}
-	// Set some sanity defaults and terminate on failure
-	if err := args.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
+// 	values := args.Value
 
-	values := args.Value
+// 	SNs := zktx.NewRandomHash()
+// 	newRs := zktx.NewRandomHash()
+// 	CMTs := zktx.GenCMT(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes()) //生成cmts
 
-	SNs := zktx.NewRandomHash()
-	newRs := zktx.NewRandomHash()
-	CMTs := zktx.GenCMT(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes()) //生成cmts
+// 	//turn params to input of contract
+// 	func_name := "Refund(uint256,bytes32)"
+// 	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+// 	value_bytes := common.HexToHash(values.String()).Bytes()
+// 	cmts_bytes := CMTs.Bytes()
 
-	//turn params to input of contract
-	func_name := "Refund(uint256,bytes32)"
-	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-	value_bytes := common.HexToHash(values.String()).Bytes()
-	cmts_bytes := CMTs.Bytes()
+// 	var buffer bytes.Buffer
+// 	buffer.Write(func_keccak256)
+// 	buffer.Write(value_bytes)
+// 	buffer.Write(cmts_bytes)
 
-	var buffer bytes.Buffer
-	buffer.Write(func_keccak256)
-	buffer.Write(value_bytes)
-	buffer.Write(cmts_bytes)
+// 	input := buffer.Bytes()
+// 	args.Input = (*hexutil.Bytes)(&input)
 
-	input := buffer.Bytes()
-	args.Input = (*hexutil.Bytes)(&input)
+// 	// Assemble the transaction and sign with the wallet
+// 	*(*uint64)(args.Gas) = 100000
+// 	tx := args.toTransaction()
+// 	tx.SetTxCode(types.RefundTx)
+// 	tx.SetPrice(big.NewInt(1))
+// 	tx.SetValue(big.NewInt(0))
+// 	tx.SetZKValue(args.Value.ToInt().Uint64())
+// 	tx.SetZKCMTS(CMTs)
 
-	// Assemble the transaction and sign with the wallet
-	*(*uint64)(args.Gas) = 50000
-	tx := args.toTransaction()
-	tx.SetTxCode(types.RefundTx)
-	tx.SetPrice(big.NewInt(1))
-	tx.SetValue(big.NewInt(0))
-	tx.SetZKValue(args.Value.ToInt().Uint64())
-	tx.SetZKCMTS(CMTs)
+// 	//randAddr := zktx.NewRandomAddress()
+// 	tx.SetZKAddress(&args.From)
 
-	//randAddr := zktx.NewRandomAddress()
-	tx.SetZKAddress(&args.From)
+// 	zkProof := zktx.GenClaimProof(args.Value.ToInt().Uint64(), SNs, newRs, CMTs)
+// 	if string(zkProof[0:10]) == "0000000000" {
+// 		return common.Hash{}, errors.New("can't generate proof")
+// 	}
+// 	tx.SetZKProof(zkProof) //proof tbd
 
-	zkProof := zktx.GenClaimProof(args.Value.ToInt().Uint64(), SNs, newRs, CMTs)
-	if string(zkProof[0:10]) == "0000000000" {
-		return common.Hash{}, errors.New("can't generate proof")
-	}
-	tx.SetZKProof(zkProof) //proof tbd
+// 	zktx.SNS = &zktx.Sequence{SN: SNs, CMT: CMTs, Random: newRs, Value: args.Value.ToInt().Uint64()}
 
-	zktx.SNS = &zktx.Sequence{SN: SNs, CMT: CMTs, Random: newRs, Value: args.Value.ToInt().Uint64()}
+// 	// var chainID *big.Int
+// 	// if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+// 	// 	chainID = config.ChainID
+// 	// }
 
-	// var chainID *big.Int
-	// if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
-	// 	chainID = config.ChainID
-	// }
+// 	//signed, err := wallet.SignTx(account, tx, chainID)
+// 	if err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	//signed, err := wallet.SignTx(account, tx, chainID)
-	if err != nil {
-		return common.Hash{}, err
-	}
+// 	hash, err := submitTransaction(ctx, s.b, tx)
 
-	hash, err := submitTransaction(ctx, s.b, tx)
+// 	if err == nil {
+// 		zktx.Stage = zktx.Claim
+// 		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Claim}
+// 		SNSBytes, err := rlp.EncodeToBytes(SNS)
+// 		if err != nil {
+// 			fmt.Println("encode sns error")
+// 			return common.Hash{}, nil
+// 		}
+// 		SNSString := hex.EncodeToString(SNSBytes)
+// 		zktx.SNfile.Seek(0, 0) //write in the first line of the file
+// 		wt := bufio.NewWriter(zktx.SNfile)
 
-	if err == nil {
-		zktx.Stage = zktx.Claim
-		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Claim}
-		SNSBytes, err := rlp.EncodeToBytes(SNS)
-		if err != nil {
-			fmt.Println("encode sns error")
-			return common.Hash{}, nil
-		}
-		SNSString := hex.EncodeToString(SNSBytes)
-		zktx.SNfile.Seek(0, 0) //write in the first line of the file
-		wt := bufio.NewWriter(zktx.SNfile)
+// 		wt.WriteString(SNSString)
+// 		wt.WriteString("\n") //write a line
+// 		wt.Flush()
+// 	}
+// 	return hash, err
 
-		wt.WriteString(SNSString)
-		wt.WriteString("\n") //write a line
-		wt.Flush()
-	}
-	return hash, err
-
-}
+// }
 
 // SendDepositsgTransaction creates a Deposit transaction for the given argument, sign it and submit it to the
 // transaction pool.
-func (s *PublicTransactionPoolAPI) SendDepositsgTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+// func (s *PublicTransactionPoolAPI) SendDepositsgTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
 
-	if zktx.SNfile == nil {
-		fmt.Println("SNfile does not exist")
-		return common.Hash{}, nil
-	}
-	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
-		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
-		return common.Hash{}, nil
-	}
-	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
-	if state == nil || err != nil {
-		return common.Hash{}, err
-	}
+// 	if zktx.SNfile == nil {
+// 		fmt.Println("SNfile does not exist")
+// 		return common.Hash{}, nil
+// 	}
+// 	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
+// 		fmt.Println("SequenceNumber or SequenceNumberAfter nil")
+// 		return common.Hash{}, nil
+// 	}
+// 	state, _, err := s.b.StateAndHeaderByNumber(ctx, rpc.LatestBlockNumber)
+// 	if state == nil || err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	//check whether sn can be used
-	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
+// 	//check whether sn can be used
+// 	exist := state.Exist(common.BytesToAddress(zktx.SequenceNumberAfter.SN.Bytes()))
 
-	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
-		fmt.Println("sn is lost")
-		return common.Hash{}, nil
-	}
+// 	if exist == true && *(zktx.SequenceNumberAfter.SN) != *(zktx.InitializeSN().SN) {
+// 		fmt.Println("sn is lost")
+// 		return common.Hash{}, nil
+// 	}
 
-	//check whether last tx is processed successfully
-	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
+// 	//check whether last tx is processed successfully
+// 	exist = state.Exist(common.BytesToAddress(zktx.SequenceNumber.SN.Bytes()))
 
-	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
-		// if zktx.Stage == zktx.Update {
-		// 	fmt.Println("last transaction is update,but it is not well processed,please send updateTx firstly")
-		// 	return common.Hash{}, nil
-		// }
-		zktx.SequenceNumberAfter = zktx.SequenceNumber
-	}
+// 	if exist == false && *(zktx.SequenceNumber.SN) != *(zktx.InitializeSN().SN) { //if last transaction is not processed successfully, the corresponding SN is not in the database,and we use SN before  last unprocessed transaction
+// 		// if zktx.Stage == zktx.Update {
+// 		// 	fmt.Println("last transaction is update,but it is not well processed,please send updateTx firstly")
+// 		// 	return common.Hash{}, nil
+// 		// }
+// 		zktx.SequenceNumberAfter = zktx.SequenceNumber
+// 	}
 
-	// Look up the wallet containing the requested signer
-	account := accounts.Account{Address: args.From}
-	wallet, err := s.b.AccountManager().Find(account)
+// 	// Look up the wallet containing the requested signer
+// 	account := accounts.Account{Address: args.From}
+// 	wallet, err := s.b.AccountManager().Find(account)
 
-	if err != nil {
-		return common.Hash{}, err
-	}
+// 	if err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	if args.Nonce == nil {
-		// Hold the addresse's mutex around signing to prevent concurrent assignment ofnil
-		// the same nonce to multiple accounts.
-		s.nonceLock.LockAddr(args.From)
-		defer s.nonceLock.UnlockAddr(args.From)
-	}
-	//Take cmts from contract
-	txSend := s.GetTransactionByHash2(ctx, args.TxHash)
-	if txSend == nil {
-		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
-	}
-	contractAddr := args.To
-	sp := NewPublicBlockChainAPI(s.b)
-	var cmt hexutil.Bytes
+// 	if args.Nonce == nil {
+// 		// Hold the addresse's mutex around signing to prevent concurrent assignment ofnil
+// 		// the same nonce to multiple accounts.
+// 		s.nonceLock.LockAddr(args.From)
+// 		defer s.nonceLock.UnlockAddr(args.From)
+// 	}
+// 	//Take cmts from contract
+// 	txSend := s.GetTransactionByHash2(ctx, args.TxHash)
+// 	if txSend == nil {
+// 		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
+// 	}
+// 	contractAddr := args.To
+// 	sp := NewPublicBlockChainAPI(s.b)
+// 	var cmt hexutil.Bytes
 
-	//Reset the contract state
-	if txSend.Code() == types.ClaimTx {
-		// func_name := "Claimreset()"
-		// func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-		// args.Input = (*hexutil.Bytes)(&func_keccak256)
-		cmt, _ = sp.GetStorageAt(ctx, *contractAddr, "0x0", rpc.LatestBlockNumber)
-	}
-	if txSend.Code() == types.RefundTx {
-		// func_name := "Refundreset()"
-		// func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-		// args.Input = (*hexutil.Bytes)(&func_keccak256)
-		cmt, _ = sp.GetStorageAt(ctx, *contractAddr, "0x1", rpc.LatestBlockNumber)
-	}
-	fmt.Println(cmt.String())
-	if cmt.String() != txSend.ZKCMTS().String() {
-		return common.Hash{}, errors.New("Wrong cmtS!")
-	}
+// 	//Reset the contract state
+// 	if txSend.Code() == types.ClaimTx {
+// 		// func_name := "Claimreset()"
+// 		// func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+// 		// args.Input = (*hexutil.Bytes)(&func_keccak256)
+// 		cmt, _ = sp.GetStorageAt(ctx, *contractAddr, "0x0", rpc.LatestBlockNumber)
+// 	}
+// 	if txSend.Code() == types.RefundTx {
+// 		// func_name := "Refundreset()"
+// 		// func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+// 		// args.Input = (*hexutil.Bytes)(&func_keccak256)
+// 		cmt, _ = sp.GetStorageAt(ctx, *contractAddr, "0x1", rpc.LatestBlockNumber)
+// 	}
+// 	fmt.Println(cmt.String())
+// 	if cmt.String() != txSend.ZKCMTS().String() {
+// 		return common.Hash{}, errors.New("Wrong cmtS!")
+// 	}
 
-	// Set some sanity defaults and terminate on failure
-	if err := args.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
-	// Assemble the transaction and sign with the wallet
-	// *(*uint64)(args.Gas) = 2000000
-	tx := args.toTransaction()
-	tx.SetTxCode(types.DepositsgTx)
-	tx.SetPrice(big.NewInt(0))
-	tx.SetValue(big.NewInt(0))
-	tx.SetZKAddress(&args.From)
+// 	// Set some sanity defaults and terminate on failure
+// 	if err := args.setDefaults(ctx, s.b); err != nil {
+// 		return common.Hash{}, err
+// 	}
+// 	// Assemble the transaction and sign with the wallet
+// 	// *(*uint64)(args.Gas) = 2000000
+// 	tx := args.toTransaction()
+// 	tx.SetTxCode(types.DepositsgTx)
+// 	tx.SetPrice(big.NewInt(0))
+// 	tx.SetValue(big.NewInt(0))
+// 	tx.SetZKAddress(&args.From)
 
-	//Generate cmt array for Merkle tree
-	RPCtx := s.GetTransactionByHash(ctx, args.TxHash)
-	if RPCtx == nil {
-		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
-	} else if RPCtx.Code != types.ClaimTxStr && RPCtx.Code != types.RefundTxStr {
-		return common.Hash{}, errors.New("Wrong transaction, the inputed transaction is not a Claim/Refund transaction!" + args.TxHash.String())
-	}
+// 	//Generate cmt array for Merkle tree
+// 	RPCtx := s.GetTransactionByHash(ctx, args.TxHash)
+// 	if RPCtx == nil {
+// 		return common.Hash{}, errors.New("there does not exist a transaction" + args.TxHash.String())
+// 	} else if RPCtx.Code != types.ClaimTxStr && RPCtx.Code != types.RefundTxStr {
+// 		return common.Hash{}, errors.New("Wrong transaction, the inputed transaction is not a Claim/Refund transaction!" + args.TxHash.String())
+// 	}
 
-	cmtBlockNumber := (*big.Int)(RPCtx.BlockNumber)
-	var cmtBlockNumbers []uint64
-	var CMTSForMerkle []*common.Hash
-	BlockToCmt := make(map[uint64][]*common.Hash)
+// 	cmtBlockNumber := (*big.Int)(RPCtx.BlockNumber)
+// 	var cmtBlockNumbers []uint64
+// 	var CMTSForMerkle []*common.Hash
+// 	BlockToCmt := make(map[uint64][]*common.Hash)
 
-	block, err := s.b.BlockByNumber(ctx, rpc.LatestBlockNumber)
-	if block == nil {
-		return common.Hash{}, err
-	}
+// 	block, err := s.b.BlockByNumber(ctx, rpc.LatestBlockNumber)
+// 	if block == nil {
+// 		return common.Hash{}, err
+// 	}
 
-	cmtBlockNumbers = append(cmtBlockNumbers, cmtBlockNumber.Uint64())
-	block2, err := s.b.BlockByNumber(ctx, rpc.BlockNumber(cmtBlockNumber.Uint64()))
-	BlockToCmt[cmtBlockNumber.Uint64()] = block2.CMTS()
+// 	cmtBlockNumbers = append(cmtBlockNumbers, cmtBlockNumber.Uint64())
+// 	block2, err := s.b.BlockByNumber(ctx, rpc.BlockNumber(cmtBlockNumber.Uint64()))
+// 	BlockToCmt[cmtBlockNumber.Uint64()] = block2.CMTS()
 
-	// latest header should always be available
-	latestBlockNumber := block.NumberU64()
-	count := len(block2.CMTS())
-loop:
-	for count < zktx.ZKCMTNODES {
-		if len(cmtBlockNumbers) > int(latestBlockNumber) {
-			return common.Hash{}, errors.New("insufficient cmts for merkle tree")
-		}
-		blockNum := uint64(rand.Int63n(int64(latestBlockNumber + 1)))
-		for i, _ := range cmtBlockNumbers {
-			if cmtBlockNumbers[i] == blockNum {
-				goto loop
-			}
-		}
-		block, err = s.b.BlockByNumber(ctx, rpc.BlockNumber(blockNum))
-		if block == nil {
-			return common.Hash{}, err
-		}
-		cmts := block.CMTS()
-		BlockToCmt[blockNum] = cmts
-		//	CMTSForMerkle = append(CMTSForMerkle, cmts...)
-		cmtBlockNumbers = append(cmtBlockNumbers, blockNum)
-		count += len(cmts)
-	}
+// 	// latest header should always be available
+// 	latestBlockNumber := block.NumberU64()
+// 	count := len(block2.CMTS())
+// loop:
+// 	for count < zktx.ZKCMTNODES {
+// 		if len(cmtBlockNumbers) > int(latestBlockNumber) {
+// 			return common.Hash{}, errors.New("insufficient cmts for merkle tree")
+// 		}
+// 		blockNum := uint64(rand.Int63n(int64(latestBlockNumber + 1)))
+// 		for i, _ := range cmtBlockNumbers {
+// 			if cmtBlockNumbers[i] == blockNum {
+// 				goto loop
+// 			}
+// 		}
+// 		block, err = s.b.BlockByNumber(ctx, rpc.BlockNumber(blockNum))
+// 		if block == nil {
+// 			return common.Hash{}, err
+// 		}
+// 		cmts := block.CMTS()
+// 		BlockToCmt[blockNum] = cmts
+// 		//	CMTSForMerkle = append(CMTSForMerkle, cmts...)
+// 		cmtBlockNumbers = append(cmtBlockNumbers, blockNum)
+// 		count += len(cmts)
+// 	}
 
-	merkle.QuickSortUint64(cmtBlockNumbers)
+// 	merkle.QuickSortUint64(cmtBlockNumbers)
 
-	for i, _ := range cmtBlockNumbers {
-		index := cmtBlockNumbers[i]
-		CMTSForMerkle = append(CMTSForMerkle, BlockToCmt[index]...)
-	}
+// 	for i, _ := range cmtBlockNumbers {
+// 		index := cmtBlockNumbers[i]
+// 		CMTSForMerkle = append(CMTSForMerkle, BlockToCmt[index]...)
+// 	}
 
-	RTcmt := zktx.GenRT(CMTSForMerkle)
-	tx.SetRTcmt(RTcmt)
+// 	RTcmt := zktx.GenRT(CMTSForMerkle)
+// 	tx.SetRTcmt(RTcmt)
 
-	tx.SetCMTBlocks(cmtBlockNumbers)
+// 	tx.SetCMTBlocks(cmtBlockNumbers)
 
-	//cmts from local
-	selfCmts := zktx.SNS
-	valueS := selfCmts.Value
-	sns := selfCmts.SN
-	rs := selfCmts.Random
-	tx.SetZKSNS(sns)
+// 	//cmts from local
+// 	selfCmts := zktx.SNS
+// 	valueS := selfCmts.Value
+// 	sns := selfCmts.SN
+// 	rs := selfCmts.Random
+// 	tx.SetZKSNS(sns)
 
-	//trusted cmts from contract
-	cmtS := common.BytesToHash(cmt)
+// 	//trusted cmts from contract
+// 	cmtS := common.BytesToHash(cmt)
 
-	if valueS <= 0 {
-		return common.Hash{}, errors.New("transfer amount must be larger than 0")
-	}
+// 	if valueS <= 0 {
+// 		return common.Hash{}, errors.New("transfer amount must be larger than 0")
+// 	}
 
-	SNb := zktx.SequenceNumberAfter
-	tx.SetZKSN(SNb.SN)
+// 	SNb := zktx.SequenceNumberAfter
+// 	tx.SetZKSN(SNb.SN)
 
-	newSN := zktx.NewRandomHash()
-	newRandom := zktx.NewRandomHash()
-	newValue := SNb.Value + valueS
-	newCMTB := zktx.GenCMT(newValue, newSN.Bytes(), newRandom.Bytes())
-	tx.SetZKCMT(newCMTB)
+// 	newSN := zktx.NewRandomHash()
+// 	newRandom := zktx.NewRandomHash()
+// 	newValue := SNb.Value + valueS
+// 	newCMTB := zktx.GenCMT(newValue, newSN.Bytes(), newRandom.Bytes())
+// 	tx.SetZKCMT(newCMTB)
 
-	zkProof := zktx.GenDepositsgProof(&cmtS, valueS, sns, rs, SNb.Value, SNb.Random, newSN, newRandom, RTcmt.Bytes(), SNb.CMT, SNb.SN, newCMTB, CMTSForMerkle)
-	if string(zkProof[0:10]) == "0000000000" {
-		return common.Hash{}, errors.New("can't generate proof")
-	}
-	tx.SetZKProof(zkProof) //proof tbd
+// 	zkProof := zktx.GenDepositsgProof(&cmtS, valueS, sns, rs, SNb.Value, SNb.Random, newSN, newRandom, RTcmt.Bytes(), SNb.CMT, SNb.SN, newCMTB, CMTSForMerkle)
+// 	if string(zkProof[0:10]) == "0000000000" {
+// 		return common.Hash{}, errors.New("can't generate proof")
+// 	}
+// 	tx.SetZKProof(zkProof) //proof tbd
 
-	// address := crypto.PubkeyToAddress(randomKeyB.PublicKey)
-	// exist = state.Exist(address)
-	// if exist == true {
-	// 	fmt.Println("pubkeyb cat not be used for a second time")
-	// 	return common.Hash{}, nil
-	// }
-	//fmt.Println("randomKeyB:", randomKeyB.D.BitLen())
+// 	// address := crypto.PubkeyToAddress(randomKeyB.PublicKey)
+// 	// exist = state.Exist(address)
+// 	// if exist == true {
+// 	// 	fmt.Println("pubkeyb cat not be used for a second time")
+// 	// 	return common.Hash{}, nil
+// 	// }
+// 	//fmt.Println("randomKeyB:", randomKeyB.D.BitLen())
 
-	var chainID *big.Int
-	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
-		chainID = config.ChainID
-	}
+// 	var chainID *big.Int
+// 	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
+// 		chainID = config.ChainID
+// 	}
 
-	signed, err := wallet.SignTx(account, tx, chainID)
-	if err != nil {
-		return common.Hash{}, err
-	}
+// 	signed, err := wallet.SignTx(account, tx, chainID)
+// 	if err != nil {
+// 		return common.Hash{}, err
+// 	}
 
-	hash, err := submitTransaction(ctx, s.b, signed)
-	if err == nil {
-		zktx.SequenceNumber = zktx.SequenceNumberAfter
-		zktx.SequenceNumberAfter = &zktx.Sequence{SN: newSN, CMT: newCMTB, Random: newRandom, Value: newValue}
-		zktx.Stage = zktx.Deposit
-		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Deposit}
-		SNSBytes, err := rlp.EncodeToBytes(SNS)
-		if err != nil {
-			fmt.Println("encode sns error")
-			return common.Hash{}, nil
-		}
-		SNSString := hex.EncodeToString(SNSBytes)
-		zktx.SNfile.Seek(0, 0) //write in the first line of the file
-		wt := bufio.NewWriter(zktx.SNfile)
+// 	hash, err := submitTransaction(ctx, s.b, signed)
+// 	if err == nil {
+// 		zktx.SequenceNumber = zktx.SequenceNumberAfter
+// 		zktx.SequenceNumberAfter = &zktx.Sequence{SN: newSN, CMT: newCMTB, Random: newRandom, Value: newValue}
+// 		zktx.Stage = zktx.Deposit
+// 		SNS := zktx.SequenceS{*zktx.SequenceNumber, *zktx.SequenceNumberAfter, zktx.SNS, nil, nil, zktx.Deposit}
+// 		SNSBytes, err := rlp.EncodeToBytes(SNS)
+// 		if err != nil {
+// 			fmt.Println("encode sns error")
+// 			return common.Hash{}, nil
+// 		}
+// 		SNSString := hex.EncodeToString(SNSBytes)
+// 		zktx.SNfile.Seek(0, 0) //write in the first line of the file
+// 		wt := bufio.NewWriter(zktx.SNfile)
 
-		wt.WriteString(SNSString)
-		wt.WriteString("\n") //write a line
-		wt.Flush()
-	}
-	return hash, err
-}
+// 		wt.WriteString(SNSString)
+// 		wt.WriteString("\n") //write a line
+// 		wt.Flush()
+// 	}
+// 	return hash, err
+// }
 
 //=============================================================================
 

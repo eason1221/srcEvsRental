@@ -17,7 +17,6 @@
 package core
 
 import (
-	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"math"
@@ -29,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -556,6 +554,144 @@ func (pool *TxPool) local() map[common.Address]types.Transactions {
 
 // validateTx checks whether a transaction is valid according to the consensus
 // rules and adheres to some heuristic limits of the local node (price and size).
+// func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
+// 	// Heuristic limit, reject transactions over 32KB to prevent DOS attacks
+
+// 	txCode := tx.TxCode()
+
+// 	if tx.Size() > 32*1024 {
+// 		return ErrOversizedData
+// 	}
+// 	// Transactions can't be negative. This may never happen using RLP decoded
+// 	// transactions but may occur if you create a transaction using the RPC.
+// 	if tx.Value().Sign() < 0 {
+// 		return ErrNegativeValue
+// 	}
+// 	// Ensure the transaction doesn't exceed the current block limit gas.
+// 	if pool.currentMaxGas < tx.Gas() {
+// 		return ErrGasLimit
+// 	}
+// 	// Make sure the transaction is signed properly
+// 	from, err := types.Sender(pool.signer, tx)
+// 	if txCode == types.DepositTx {
+// 		PKBAddress, _ := types.ExtractPKBAddress(types.HomesteadSigner{}, tx)
+// 		x, y := tx.PubKey()
+// 		pub := ecdsa.PublicKey{Curve: crypto.S256(), X: x, Y: y}
+// 		address := crypto.PubkeyToAddress(pub)
+// 		if address != PKBAddress {
+// 			return errors.New("invalid publickey for deposit tx")
+// 		}
+// 	}
+// 	if err != nil {
+// 		return ErrInvalidSender
+// 	}
+// 	// Drop non-local transactions under our own minimal accepted gas price
+// 	local = local || pool.locals.contains(from) // account may be local even if the transaction arrived from the network
+// 	if txCode == types.PublicTx && !local && pool.gasPrice.Cmp(tx.GasPrice()) > 0 {
+// 		return ErrUnderpriced
+// 	}
+// 	// Ensure the transaction adheres to nonce ordering
+// 	if txCode != types.SendTx && pool.currentState.GetNonce(from) > tx.Nonce() {
+// 		return ErrNonceTooLow
+// 	}
+// 	// Transactor should have enough funds to cover the costs
+// 	// cost == V + GP * GL
+// 	if txCode != types.SendTx && txCode != types.CommitTx && pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+// 		return ErrInsufficientFunds
+// 	}
+// 	intrGas, err := IntrinsicGas(tx.Data(), tx.To() == nil, pool.homestead)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	if tx.Code() == types.PublicTx && tx.Gas() < intrGas {
+// 		return ErrIntrinsicGas
+// 	}
+// 	if txCode == types.MintTx {
+// 		balance := pool.currentState.GetBalance(from)
+// 		if balance.Uint64() < tx.ZKValue() {
+// 			return errors.New("not enough balance")
+// 		}
+// 		cmtbalance := pool.currentState.GetCMTBalance(from)
+// 		err = zktx.VerifyMintProof(&cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()) //TBD
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	if txCode == types.RedeemTx {
+// 		cmtbalance := pool.currentState.GetCMTBalance(from)
+// 		err = zktx.VerifyRedeemProof(&cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()) //TBD
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	if txCode == types.ConvertTx {
+// 		cmtbalance := pool.currentState.GetCMTBalance(from)
+// 		err = zktx.VerifyConvertProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), &cmtbalance, tx.ZKCMT()) //TBD
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	if txCode == types.CommitTx {
+// 		err = zktx.VerifyCommitProof(tx.ZKValue(), tx.ZKSNS(), tx.RTcmt().Bytes(), tx.ZKProof()) //TBD
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	if txCode == types.ClaimTx {
+// 		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKValue(), tx.ZKProof()) //TBD
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	if txCode == types.RefundTx {
+// 		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKValue(), tx.ZKProof()) //TBD
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	// if txCode == types.SendTx {
+// 	// 	cmtbalance := pool.currentState.GetCMTBalance(from)
+// 	// 	err = zktx.VerifySendProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), &cmtbalance, tx.ZKCMT()) //TBD
+// 	// 	if err != nil {
+// 	// 		return err
+// 	// 	}
+// 	// }
+// 	// if txCode == types.DepositTx {
+// 	// 	cmtbalance := pool.currentState.GetCMTBalance(from)
+// 	// 	ppp := &ecdsa.PublicKey{crypto.S256(), tx.X(), tx.Y()}
+// 	// 	err = zktx.VerifyDepositProof(ppp, tx.RTcmt(), &cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
+// 	// 	if err != nil {
+// 	// 		return err
+// 	// 	}
+// 	// }
+// 	if txCode == types.DepositsgTx {
+// 		cmtbalance := pool.currentState.GetCMTBalance(from)
+// 		err = zktx.VerifyDepositsgProof(tx.ZKSNS(), tx.RTcmt(), &cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+
+// 	if txCode == types.DepositTx || txCode == types.DepositsgTx || txCode == types.CommitTx {
+// 		var cmtsForMerkle []*common.Hash
+// 		cmtblocknumbers := tx.CMTBlocks()
+// 		for i, _ := range cmtblocknumbers {
+// 			blockNumber := cmtblocknumbers[i]
+// 			block := pool.chain.GetBlockByNumber(blockNumber)
+// 			cmtsForMerkle = append(cmtsForMerkle, block.CMTS()...)
+// 		}
+
+// 		cmtRoot := zktx.GenRT(cmtsForMerkle)
+// 		txCMTroot := tx.RTcmt()
+// 		if txCMTroot != cmtRoot {
+// 			return errors.New("invalid CMTRoot")
+// 		}
+
+// 	}
+// 	return nil
+// }
+
+//-------------test performance-----------------
 func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Heuristic limit, reject transactions over 32KB to prevent DOS attacks
 
@@ -575,15 +711,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	// Make sure the transaction is signed properly
 	from, err := types.Sender(pool.signer, tx)
-	if txCode == types.DepositTx {
-		PKBAddress, _ := types.ExtractPKBAddress(types.HomesteadSigner{}, tx)
-		x, y := tx.PubKey()
-		pub := ecdsa.PublicKey{Curve: crypto.S256(), X: x, Y: y}
-		address := crypto.PubkeyToAddress(pub)
-		if address != PKBAddress {
-			return errors.New("invalid publickey for deposit tx")
-		}
-	}
+
 	if err != nil {
 		return ErrInvalidSender
 	}
@@ -598,7 +726,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if txCode != types.SendTx && txCode != types.CommitTx && pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+	if txCode != types.SendTx && pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 		return ErrInsufficientFunds
 	}
 	intrGas, err := IntrinsicGas(tx.Data(), tx.To() == nil, pool.homestead)
@@ -608,87 +736,50 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if tx.Code() == types.PublicTx && tx.Gas() < intrGas {
 		return ErrIntrinsicGas
 	}
+
 	if txCode == types.MintTx {
-		balance := pool.currentState.GetBalance(from)
-		if balance.Uint64() < tx.ZKValue() {
-			return errors.New("not enough balance")
-		}
-		cmtbalance := pool.currentState.GetCMTBalance(from)
-		err = zktx.VerifyMintProof(&cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()) //TBD
-		if err != nil {
-			return err
-		}
-	}
-	if txCode == types.RedeemTx {
-		cmtbalance := pool.currentState.GetCMTBalance(from)
-		err = zktx.VerifyRedeemProof(&cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()) //TBD
+		err = zktx.VerifyMintProof(tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()) //TBD
 		if err != nil {
 			return err
 		}
 	}
 	if txCode == types.ConvertTx {
-		cmtbalance := pool.currentState.GetCMTBalance(from)
-		err = zktx.VerifyConvertProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), &cmtbalance, tx.ZKCMT()) //TBD
-		if err != nil {
-			return err
-		}
-	}
-	if txCode == types.CommitTx {
-		err = zktx.VerifyCommitProof(tx.ZKValue(), tx.ZKSNS(), tx.RTcmt().Bytes(), tx.ZKProof()) //TBD
+		err = zktx.VerifyConvertProof(tx.ZKSNS(), tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), tx.ZKCMTOLD(), tx.ZKCMT()) //TBD
 		if err != nil {
 			return err
 		}
 	}
 	if txCode == types.ClaimTx {
-		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKValue(), tx.ZKProof()) //TBD
+		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKCMT(), uint64(20), uint64(8), uint64(100), tx.ZKProof()) //TBD
+		if err != nil {
+			return err
+		}
+	}
+	if txCode == types.DepositsgTx {
+		err = zktx.VerifyDepositsgProof(tx.ZKCMTT(), tx.ZKSNS(), tx.RTcmt(), tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
 		if err != nil {
 			return err
 		}
 	}
 	if txCode == types.RefundTx {
-		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKValue(), tx.ZKProof()) //TBD
-		if err != nil {
-			return err
-		}
-	}
-	// if txCode == types.SendTx {
-	// 	cmtbalance := pool.currentState.GetCMTBalance(from)
-	// 	err = zktx.VerifySendProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), &cmtbalance, tx.ZKCMT()) //TBD
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
-	// if txCode == types.DepositTx {
-	// 	cmtbalance := pool.currentState.GetCMTBalance(from)
-	// 	ppp := &ecdsa.PublicKey{crypto.S256(), tx.X(), tx.Y()}
-	// 	err = zktx.VerifyDepositProof(ppp, tx.RTcmt(), &cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// }
-	if txCode == types.DepositsgTx {
-		cmtbalance := pool.currentState.GetCMTBalance(from)
-		err = zktx.VerifyDepositsgProof(tx.ZKSNS(), tx.RTcmt(), &cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
+		log.Info("============================tx_pool.go verify============================")
+		err = zktx.VerifyDepositProof(uint64(100), tx.ZKSNS(), tx.RTcmt(), tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
 		if err != nil {
 			return err
 		}
 	}
 
-	if txCode == types.DepositTx || txCode == types.DepositsgTx || txCode == types.CommitTx{
-		var cmtsForMerkle []*common.Hash
-		cmtblocknumbers := tx.CMTBlocks()
-		for i, _ := range cmtblocknumbers {
-			blockNumber := cmtblocknumbers[i]
-			block := pool.chain.GetBlockByNumber(blockNumber)
-			cmtsForMerkle = append(cmtsForMerkle, block.CMTS()...)
+	if txCode == types.DepositsgTx || txCode == types.RefundTx {
+		var cmtArr []*common.Hash
+		l := tx.Cmtarr()
+		for i := 0; i < len(l); i++ {
+			cmtArr = append(cmtArr, &l[i])
 		}
-
-		cmtRoot := zktx.GenRT(cmtsForMerkle)
+		cmtRoot := zktx.GenRT(cmtArr)
 		txCMTroot := tx.RTcmt()
 		if txCMTroot != cmtRoot {
 			return errors.New("invalid CMTRoot")
 		}
-
 	}
 	return nil
 }
