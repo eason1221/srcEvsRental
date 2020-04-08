@@ -56,6 +56,6 @@ int main()
   deposit.generate_r1cs_constraints(); // 生成约束
   const r1cs_constraint_system<FieldT> constraint_system = pb.get_constraint_system();
   r1cs_ppzksnark_keypair<alt_bn128_pp> keypair = r1cs_ppzksnark_generator<alt_bn128_pp>(constraint_system);
-  serializeProvingKeyToFile(keypair.pk, "depositpk.txt");
-  vkToFile(keypair.vk, "depositvk.txt");
+  serializeProvingKeyToFile(keypair.pk, "refundpk.txt");
+  vkToFile(keypair.vk, "refundvk.txt");
 }

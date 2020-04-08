@@ -91,15 +91,15 @@ func GenRT(CMTSForMerkle []*common.Hash) common.Hash {
 func GenDepositsgProof(CMTT *common.Hash, RC *common.Hash, CMTS *common.Hash, ValueS uint64, SNS *common.Hash, RS *common.Hash, ValueB uint64, RB *common.Hash, SNBnew *common.Hash, RBnew *common.Hash, RTcmt []byte, CMTB *common.Hash, SNB *common.Hash, CMTBnew *common.Hash, CMTSForMerkle []*common.Hash) []byte {
 	cmtS_c := C.CString(common.ToHex(CMTS[:]))
 	valueS_c := C.ulong(ValueS)
-	SNS_c := C.CString(common.ToHex(SNS.Bytes()[:])) //--zy
-	RS_c := C.CString(common.ToHex(RS.Bytes()[:]))   //--zy
+	SNS_c := C.CString(common.ToHex(SNS.Bytes()[:]))
+	RS_c := C.CString(common.ToHex(RS.Bytes()[:]))
 	valueB_c := C.ulong(ValueB)
 	RB_c := C.CString(common.ToHex(RB.Bytes()[:]))
 	SNB_c := C.CString(common.ToHex(SNB.Bytes()[:]))
 	SNBnew_c := C.CString(common.ToHex(SNBnew.Bytes()[:]))
 	RBnew_c := C.CString(common.ToHex(RBnew.Bytes()[:]))
 	cmtB_c := C.CString(common.ToHex(CMTB[:]))
-	RT_c := C.CString(common.ToHex(RTcmt)) //--zy   rt
+	RT_c := C.CString(common.ToHex(RTcmt))
 
 	cmtBnew_c := C.CString(common.ToHex(CMTBnew[:]))
 	valueBNew_c := C.ulong(ValueB + ValueS)

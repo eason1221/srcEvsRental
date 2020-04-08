@@ -1,9 +1,9 @@
 package main
 
 /*
-#cgo LDFLAGS: -L/usr/local/lib  -lzk_deposit -lff  -lsnark -lstdc++  -lgmp -lgmpxx
+#cgo LDFLAGS: -L/usr/local/lib  -lzk_refund -lff  -lsnark -lstdc++  -lgmp -lgmpxx
 
-#include "depositcgo.hpp"
+#include "refundcgo.hpp"
 #include <stdlib.h>
 */
 import "C"
@@ -74,7 +74,7 @@ func GenRT(CMTSForMerkle []*common.Hash) common.Hash {
 	return reshash
 }
 
-func GenDepositProof(ValueB uint64, ValueBOld uint64, SNB *common.Hash, RB *common.Hash, SNBnew *common.Hash, RBnew *common.Hash,
+func GenRefundProof(ValueB uint64, ValueBOld uint64, SNB *common.Hash, RB *common.Hash, SNBnew *common.Hash, RBnew *common.Hash,
 	SNS *common.Hash, RS *common.Hash, CMTBOLD *common.Hash, CMTBnew *common.Hash, ValueS uint64,
 	CMTS *common.Hash, CMTSForMerkle []*common.Hash, RTcmt []byte, fees uint64, cost uint64) []byte {
 
@@ -102,16 +102,16 @@ func GenDepositProof(ValueB uint64, ValueBOld uint64, SNB *common.Hash, RB *comm
 	Fees_c := C.ulong(fees)
 	Cost_c := C.ulong(cost)
 
-	cproof := C.genDepositproof(valueBNew_c, valueBOld_c, SNOld_c, ROld_c, SNBNew_c, RBNew_c, SNS_c, RS_c,
+	cproof := C.genRefundproof(valueBNew_c, valueBOld_c, SNOld_c, ROld_c, SNBNew_c, RBNew_c, SNS_c, RS_c,
 		cmtBOld_c, cmtBNew_c, valueS_c, cmtS_c, cmtsM, nC, RT_c, Fees_c, Cost_c)
 	var goproof string
 	goproof = C.GoString(cproof)
 	return []byte(goproof)
 }
 
-var InvalidDepositProof = errors.New("Verifying refund(user) proof failed!!!")
+var InvalidRefundProof = errors.New("Verifying refund(user) proof failed!!!")
 
-func VerifyDepositProof(fees uint64, sns *common.Hash, rtcmt common.Hash, cmtb *common.Hash, snb *common.Hash, cmtbnew *common.Hash, proof []byte) error {
+func VerifyRefundProof(fees uint64, sns *common.Hash, rtcmt common.Hash, cmtb *common.Hash, snb *common.Hash, cmtbnew *common.Hash, proof []byte) error {
 
 	cproof := C.CString(string(proof))
 	rtmCmt := C.CString(common.ToHex(rtcmt[:]))
@@ -121,9 +121,9 @@ func VerifyDepositProof(fees uint64, sns *common.Hash, rtcmt common.Hash, cmtb *
 	SNS_c := C.CString(common.ToHex(sns.Bytes()[:]))
 	Fees := C.ulong(fees)
 
-	tf := C.verifyDepositproof(cproof, rtmCmt, cmtB, SNB_c, cmtBnew, SNS_c, Fees)
+	tf := C.verifyRefundproof(cproof, rtmCmt, cmtB, SNB_c, cmtBnew, SNS_c, Fees)
 	if tf == false {
-		return InvalidDepositProof
+		return InvalidRefundProof
 	}
 	return nil
 }
@@ -161,10 +161,10 @@ func main() {
 
 	RT := GenRT(cmtarray)
 
-	proof := GenDepositProof(value, value_old, sn_old, r_old, sn, r, sn_s, r_s, cmtB_old, cmtB, values, cmtS, cmtarray, RT.Bytes(), fees, cost)
+	proof := GenRefundProof(value, value_old, sn_old, r_old, sn, r, sn_s, r_s, cmtB_old, cmtB, values, cmtS, cmtarray, RT.Bytes(), fees, cost)
 
 	fmt.Println("refund(user) Proof=====", proof)
 
-	VerifyDepositProof(fees, sn_s, RT, cmtB_old, sn_old, cmtB, proof)
+	VerifyRefundProof(fees, sn_s, RT, cmtB_old, sn_old, cmtB, proof)
 
 }

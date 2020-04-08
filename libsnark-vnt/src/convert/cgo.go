@@ -81,15 +81,15 @@ func GenConvertProof(CMTA *common.Hash, ValueA uint64, RA *common.Hash, ValueS u
 
 var InvalidConvertProof = errors.New("Verifying convert proof failed!!!")
 
-func VerifyConvertProof(sns *common.Hash, sna *common.Hash, cmts *common.Hash, proof []byte, cmtAold *common.Hash, cmtAnew *common.Hash) error {
+func VerifyConvertProof(sna *common.Hash, cmts *common.Hash, proof []byte, cmtAold *common.Hash, cmtAnew *common.Hash) error {
 	cproof := C.CString(string(proof))
-	sn_s_c := C.CString(common.ToHex(sns.Bytes()[:]))
+	// sn_s_c := C.CString(common.ToHex(sns.Bytes()[:]))
 	snAold_c := C.CString(common.ToHex(sna.Bytes()[:]))
 	cmtS := C.CString(common.ToHex(cmts[:]))
 	cmtAold_c := C.CString(common.ToHex(cmtAold[:]))
 	cmtAnew_c := C.CString(common.ToHex(cmtAnew[:]))
 
-	tf := C.verifyConvertproof(cproof, cmtAold_c, sn_s_c, snAold_c, cmtS, cmtAnew_c)
+	tf := C.verifyConvertproof(cproof, cmtAold_c, snAold_c, cmtS, cmtAnew_c)
 	if tf == false {
 		return InvalidConvertProof
 	}
@@ -117,6 +117,6 @@ func main() {
 	proof := GenConvertProof(cmtA_old, value_old, r_old, values, sn_s, r_s, sn_old, cmtS, value, sn, r, cmtA)
 	fmt.Println("cost(user) proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
 
-	VerifyConvertProof(sn_s, sn_old, cmtS, proof, cmtA_old, cmtA)
+	VerifyConvertProof(sn_old, cmtS, proof, cmtA_old, cmtA)
 
 }

@@ -4,19 +4,23 @@
 #include <boost/optional.hpp>
 #include <boost/foreach.hpp>
 #include <boost/format.hpp>
+#include <boost/array.hpp>
 
 #include "libsnark/zk_proof_systems/ppzksnark/r1cs_ppzksnark/r1cs_ppzksnark.hpp"
 #include "libsnark/common/default_types/r1cs_ppzksnark_pp.hpp"
 #include <libsnark/gadgetlib1/gadgets/hashes/sha256/sha256_gadget.hpp>
 #include "libff/algebra/curves/alt_bn128/alt_bn128_pp.hpp"
+#include "libsnark/gadgetlib1/gadgets/merkle_tree/merkle_tree_check_read_gadget.hpp"
 
 #include "Note.h"
 #include "uint256.h"
-#include "convertcgo.hpp"
+#include "refundcgo.hpp"
+#include "IncrementalMerkleTree.hpp"
 
 using namespace libsnark;
 using namespace libff;
 using namespace std;
+using namespace libvnt;
 
 #include "circuit/gadget.tcc"
 
@@ -193,25 +197,30 @@ std::string string_proof_as_hex(libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_
 }
 
 template <typename ppzksnark_ppT>
-r1cs_ppzksnark_proof<ppzksnark_ppT> generate_convert_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
-                                                        Note &note_old,
-                                                        Note &notes,
-                                                        Note& note,
-                                                        uint256 cmtA_old,
-                                                        uint256 cmtS,
-                                                        uint256 cmtA)
+r1cs_ppzksnark_proof<ppzksnark_ppT> generate_refund_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
+                                                           const Note &note_s,
+                                                           const Note &note_old,
+                                                           const Note &note,
+                                                           uint256 cmtS,
+                                                           uint256 cmtB_old,
+                                                           uint256 cmtB,
+                                                           const uint256 &rt,
+                                                           const MerklePath &path,
+                                                           uint64_t fees,
+                                                           uint64_t cost )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
-    protoboard<FieldT> pb;         // 定义原始模型，该模型包含constraint_system成员变量
-    convert_gadget<FieldT> g(pb);  // 构造新模型
-    g.generate_r1cs_constraints(); // 生成约束
-    g.generate_r1cs_witness(note_old, notes, note, cmtA_old, cmtS, cmtA); // 为新模型的参数生成证明
+    protoboard<FieldT> pb;               // 定义原始模型，该模型包含constraint_system成员变量
+    deposit_gadget<FieldT> deposit(pb);  // 构造新模型
+    deposit.generate_r1cs_constraints(); // 生成约束
+
+    deposit.generate_r1cs_witness(note_s, note_old, note, cmtS, cmtB_old, cmtB, rt, path,fees,cost); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
         //throw std::invalid_argument("Constraint system not satisfied by inputs");
-        cout << "can not generate cost(user) proof" << endl;
+        cout << "can not generate refund(user) proof" << endl;
         return r1cs_ppzksnark_proof<ppzksnark_ppT>();
     }
 
@@ -221,22 +230,24 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_convert_proof(r1cs_ppzksnark_provin
 
 // 验证proof
 template <typename ppzksnark_ppT>
-bool verify_convert_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
-                  r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
-                  uint256 &cmtA_old,
-                //   uint256 &sn_s,
-                  uint256 &sn_old,                
-                  uint256 &cmtS,
-                  uint256 &cmtA)
+bool verify_refund_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
+                          r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
+                          const uint256 &rt,
+                          const uint256 &cmtB_old,
+                          const uint256 &sn_old,
+                          const uint256 &cmtB,
+                          const uint256 &sn_s,
+                          uint64_t fees)
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
-    const r1cs_primary_input<FieldT> input = convert_gadget<FieldT>::witness_map(
-        cmtA_old,
+    const r1cs_primary_input<FieldT> input = deposit_gadget<FieldT>::witness_map(
+        rt,
+        cmtB_old,
         sn_old,
-        // sn_s,
-        cmtS,
-        cmtA);
+        cmtB,
+        sn_s,
+        fees);
 
     // 调用libsnark库中验证proof的函数
     return r1cs_ppzksnark_verifier_strong_IC<ppzksnark_ppT>(verification_key, input, proof);
@@ -257,47 +268,124 @@ char *genCMT(uint64_t value, char *sn_string, char *r_string)
     return p;
 }
 
-char *genConvertproof(uint64_t value_A,
-                   char *sn_s_string,
-                   char *r_s_string,
-                   char *sn_string,
-                   char *r_string,
-                   char *cmt_s_string,
-                   char *cmtA_string,
-                   uint64_t value_s,
-                   uint64_t value_A_new,
-                   char *sn_A_new,
-                   char *r_A_new,
-                   char *cmt_A_new)
+char *genRoot(char *cmtarray, int n)
 {
-    //从字符串转uint256
-    uint256 sn_s = uint256S(sn_s_string);
-    uint256 r_s = uint256S(r_s_string);
+    boost::array<uint256, 32> commitments; //32个cmts
+
+    string s = cmtarray;
+
+    ZCIncrementalMerkleTree tree;
+    assert(tree.root() == ZCIncrementalMerkleTree::empty_root());
+
+    for (int i = 0; i < n; i++)
+    {
+        commitments[i] = uint256S(s.substr(i * 66, 66)); //分割cmtarray  0x+64个十六进制数 一共66位
+        tree.append(commitments[i]);
+    }
+
+    uint256 rt = tree.root();
+    std::string rt_c = rt.ToString();
+
+    char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0   65
+    rt_c.copy(p, 64, 0);
+    *(p + 64) = '\0'; //手动加结束符
+
+    return p;
+}
+
+char *genRefundproof(uint64_t value,
+                      uint64_t value_old,
+                      char *sn_old_string,
+                      char *r_old_string,
+                      char *sn_string,
+                      char *r_string,
+                      char *sns_string,
+                      char *rs_string,
+                      char *cmtB_old_string,
+                      char *cmtB_string,
+                      uint64_t value_s,
+                      char *cmtS_string,
+                      char *cmtarray,
+                      int n,
+                      char *RT,
+                      uint64_t fees,
+                      uint64_t cost)
+{
+    uint256 sn_old = uint256S(sn_old_string);
+    uint256 r_old = uint256S(r_old_string);
     uint256 sn = uint256S(sn_string);
     uint256 r = uint256S(r_string);
-    uint256 cmtS = uint256S(cmt_s_string);
-    uint256 cmtA = uint256S(cmtA_string);
-    uint256 snAnew = uint256S(sn_A_new);
-    uint256 rAnew = uint256S(r_A_new);
-    uint256 cmtAnew = uint256S(cmt_A_new);
+    uint256 sn_s = uint256S(sns_string);
+    uint256 r_s = uint256S(rs_string);
+    uint256 cmtB_old = uint256S(cmtB_old_string);
+    uint256 cmtB = uint256S(cmtB_string);
+    uint256 cmtS = uint256S(cmtS_string);
 
+    Note note_old = Note(value_old, sn_old, r_old);
+    Note note_s = Note(value_s, sn_s, r_s);
+    Note note = Note(value, sn, r);
 
-    //计算sha256
-    Note note_old = Note(value_A, sn, r);
-    Note notes = Note(value_s, sn_s, r_s);
-    Note note_new = Note(value_A_new, snAnew, rAnew);
+    boost::array<uint256, 32> commitments; //32个cmts
+    string sss = cmtarray;
+
+    for (int i = 0; i < n; i++)
+    {
+        commitments[i] = uint256S(sss.substr(i * 66, 66)); //分割cmtarray  0x+64个十六进制数 一共66位
+    }
+
+    ZCIncrementalMerkleTree tree;
+    assert(tree.root() == ZCIncrementalMerkleTree::empty_root());
+
+    ZCIncrementalWitness wit = tree.witness(); //初始化witness
+    bool find_cmtS = false;
+    for (size_t i = 0; i < n; i++)
+    {
+        if (find_cmtS)
+        {
+            wit.append(commitments[i]);
+        }
+        else
+        {
+            /********************************************
+             * 如果删除else分支，
+             * 将tree.append(commitments[i])放到for循环体中，
+             * 最终得到的rt == wit.root() == tree.root()
+             *********************************************/
+            tree.append(commitments[i]);
+        }
+
+        if (commitments[i] == cmtS)
+        {
+            //在要证明的叶子节点添加到tree后，才算真正初始化wit，下面的root和path才会正确。
+            wit = tree.witness();
+            find_cmtS = true;
+        }
+    }
+
+    auto path = wit.path();
+    uint256 rt = wit.root();
 
     //初始化参数
     alt_bn128_pp::init_public_params();
-    
-    r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
-    cout << "Trying to read cost(user) proving key file..." << endl;
-    cout << "Please be patient as this may take about 30 seconds. " << endl;
-    keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/convertpk.txt");
-    // 生成proof
-    cout << "Trying to generate cost(user) proof..." << endl;
 
-    libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_convert_proof<alt_bn128_pp>(keypair.pk, note_old, notes, note_new, cmtA, cmtS , cmtAnew);
+    r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
+    cout << "Trying to read refund(user) proving key file..." << endl;
+    cout << "Please be patient as this may take about 30 seconds. " << endl;
+    keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/refundpk.txt");
+    // 生成proof
+    cout << "Trying to generate refund(user) proof..." << endl;
+
+    libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_refund_proof<alt_bn128_pp>(keypair.pk,
+                                                                                                     note_s,
+                                                                                                     note_old,
+                                                                                                     note,
+                                                                                                     cmtS,
+                                                                                                     cmtB_old,
+                                                                                                     cmtB,
+                                                                                                     rt,
+                                                                                                     path,
+                                                                                                     fees,
+                                                                                                     cost);
 
     //proof转字符串
     std::string proof_string = string_proof_as_hex(proof);
@@ -309,20 +397,20 @@ char *genConvertproof(uint64_t value_A,
     return p;
 }
 
-bool verifyConvertproof(char *data, char *cmtA_old_string, char *sn_old_string, char *cmtS_string ,char *cmtA_new_string)
+bool verifyRefundproof(char *data, char *RT,  char *cmtb_old, char *snold, char *cmtb, char *sns, uint64_t fees)
 {
-    uint256 sn_old = uint256S(sn_old_string);
-    // uint256 sn_s = uint256S(sn_s_string);
-    uint256 cmtS = uint256S(cmtS_string);
-    uint256 cmtA_old = uint256S(cmtA_old_string);
-    uint256 cmtA_new = uint256S(cmtA_new_string);
+    uint256 rt = uint256S(RT);
+    uint256 cmtB_old = uint256S(cmtb_old);
+    uint256 sn_old = uint256S(snold);
+    uint256 cmtB = uint256S(cmtb);
+    uint256 sn_s = uint256S(sns);
 
     alt_bn128_pp::init_public_params();
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
-    keypair.vk = deserializevkFromFile("/usr/local/prfKey/convertvk.txt");
+    keypair.vk = deserializevkFromFile("/usr/local/prfKey/refundvk.txt");
 
     libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof;
-    
+
     uint8_t A_g_x[64];
     uint8_t A_g_y[64];
     uint8_t A_h_x[64];
@@ -426,19 +514,25 @@ bool verifyConvertproof(char *data, char *cmtA_old_string, char *sn_old_string, 
     proof.g_K.X = k_x;
     proof.g_K.Y = k_y;
 
-    cout << "Trying to verify cost(user) proof..." << endl;
+    cout << "Trying to verify refund(user) proof..." << endl;
 
-    bool result = verify_convert_proof(keypair.vk, proof, cmtA_old, sn_old, cmtS, cmtA_new);
+    bool result = verify_refund_proof(keypair.vk,
+                                       proof,
+                                       rt,
+                                       cmtB_old,
+                                       sn_old,
+                                       cmtB,
+                                       sn_s,
+                                       fees);
 
     if (!result)
     {
-        cout << "Verifying cost(user) proof unsuccessfully!!!" << endl;
+        cout << "Verifying refund(user) proof unsuccessfully!!!" << endl;
     }
     else
     {
-        cout << "Verifying cost(user) proof successfully!!!" << endl;
+        cout << "Verifying refund(user) proof successfully!!!" << endl;
     }
 
     return result;
 }
-

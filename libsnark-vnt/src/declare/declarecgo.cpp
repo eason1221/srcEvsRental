@@ -4,23 +4,19 @@
 #include <boost/optional.hpp>
 #include <boost/foreach.hpp>
 #include <boost/format.hpp>
-#include <boost/array.hpp>
 
 #include "libsnark/zk_proof_systems/ppzksnark/r1cs_ppzksnark/r1cs_ppzksnark.hpp"
 #include "libsnark/common/default_types/r1cs_ppzksnark_pp.hpp"
 #include <libsnark/gadgetlib1/gadgets/hashes/sha256/sha256_gadget.hpp>
 #include "libff/algebra/curves/alt_bn128/alt_bn128_pp.hpp"
-#include "libsnark/gadgetlib1/gadgets/merkle_tree/merkle_tree_check_read_gadget.hpp"
 
 #include "Note.h"
 #include "uint256.h"
-#include "depositcgo.hpp"
-#include "IncrementalMerkleTree.hpp"
+#include "declarecgo.hpp"
 
 using namespace libsnark;
 using namespace libff;
 using namespace std;
-using namespace libvnt;
 
 #include "circuit/gadget.tcc"
 
@@ -197,30 +193,26 @@ std::string string_proof_as_hex(libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_
 }
 
 template <typename ppzksnark_ppT>
-r1cs_ppzksnark_proof<ppzksnark_ppT> generate_deposit_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
-                                                           const Note &note_s,
-                                                           const Note &note_old,
-                                                           const Note &note,
-                                                           uint256 cmtS,
-                                                           uint256 cmtB_old,
-                                                           uint256 cmtB,
-                                                           const uint256 &rt,
-                                                           const MerklePath &path,
-                                                           uint64_t fees,
-                                                           uint64_t cost )
+r1cs_ppzksnark_proof<ppzksnark_ppT> generate_declare_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
+                                                        
+                                                        Note &notes,
+                                                        uint256 cmtS,
+                                                        NoteC &notecmtt,
+                                                        uint256 cmtt,
+                                                        uint64_t dist
+                                                        )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
-    protoboard<FieldT> pb;               // 定义原始模型，该模型包含constraint_system成员变量
-    deposit_gadget<FieldT> deposit(pb);  // 构造新模型
-    deposit.generate_r1cs_constraints(); // 生成约束
-
-    deposit.generate_r1cs_witness(note_s, note_old, note, cmtS, cmtB_old, cmtB, rt, path,fees,cost); // 为新模型的参数生成证明
+    protoboard<FieldT> pb;         // 定义原始模型，该模型包含constraint_system成员变量
+    declare_gadget<FieldT> g(pb);    // 构造新模型
+    g.generate_r1cs_constraints(); // 生成约束
+    g.generate_r1cs_witness(notes, notecmtt, cmtS, cmtt, dist); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
         //throw std::invalid_argument("Constraint system not satisfied by inputs");
-        cout << "can not generate refund(user) proof" << endl;
+        cout << "can not generate declare(owner) proof" << endl;
         return r1cs_ppzksnark_proof<ppzksnark_ppT>();
     }
 
@@ -230,24 +222,24 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_deposit_proof(r1cs_ppzksnark_provin
 
 // 验证proof
 template <typename ppzksnark_ppT>
-bool verify_deposit_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
-                          r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
-                          const uint256 &rt,
-                          const uint256 &cmtB_old,
-                          const uint256 &sn_old,
-                          const uint256 &cmtB,
-                          const uint256 &sn_s,
-                          uint64_t fees)
+bool verify_declare_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
+                  r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
+                //   uint256 &cmtS,
+                  uint256 &cmtt
+                //   uint64_t subdist,
+                //   uint64_t dist
+                //   uint64_t fees
+                  )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
-    const r1cs_primary_input<FieldT> input = deposit_gadget<FieldT>::witness_map(
-        rt,
-        cmtB_old,
-        sn_old,
-        cmtB,
-        sn_s,
-        fees);
+    const r1cs_primary_input<FieldT> input = declare_gadget<FieldT>::witness_map(
+        // cmtS,
+        cmtt
+        // subdist,
+        // dist
+        // fees
+        );
 
     // 调用libsnark库中验证proof的函数
     return r1cs_ppzksnark_verifier_strong_IC<ppzksnark_ppT>(verification_key, input, proof);
@@ -268,124 +260,61 @@ char *genCMT(uint64_t value, char *sn_string, char *r_string)
     return p;
 }
 
-char *genRoot(char *cmtarray, int n)
+//func GenCMT(value uint64, r []byte)
+char *genCMT2(uint64_t value, char *r_string)
 {
-    boost::array<uint256, 32> commitments; //32个cmts
-
-    string s = cmtarray;
-
-    ZCIncrementalMerkleTree tree;
-    assert(tree.root() == ZCIncrementalMerkleTree::empty_root());
-
-    for (int i = 0; i < n; i++)
-    {
-        commitments[i] = uint256S(s.substr(i * 66, 66)); //分割cmtarray  0x+64个十六进制数 一共66位
-        tree.append(commitments[i]);
-    }
-
-    uint256 rt = tree.root();
-    std::string rt_c = rt.ToString();
-
-    char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0   65
-    rt_c.copy(p, 64, 0);
+    uint256 r = uint256S(r_string);
+    NoteC note = NoteC(value, r);
+    uint256 cmtA = note.cm();
+    std::string cmtA_c = cmtA.ToString();
+    char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0
+    cmtA_c.copy(p, 64, 0);
     *(p + 64) = '\0'; //手动加结束符
 
     return p;
 }
 
-char *genDepositproof(uint64_t value,
-                      uint64_t value_old,
-                      char *sn_old_string,
-                      char *r_old_string,
-                      char *sn_string,
-                      char *r_string,
-                      char *sns_string,
-                      char *rs_string,
-                      char *cmtB_old_string,
-                      char *cmtB_string,
-                      uint64_t value_s,
-                      char *cmtS_string,
-                      char *cmtarray,
-                      int n,
-                      char *RT,
-                      uint64_t fees,
-                      uint64_t cost)
+
+char *genDeclareproof(
+                        char *sn_s_string,
+                        char *r_s_string,
+                        char *cmt_s_string,
+                        char *r_string,
+                        char *cmtt_string,
+                        uint64_t subcost,
+                        uint64_t dist
+
+                    )
 {
-    uint256 sn_old = uint256S(sn_old_string);
-    uint256 r_old = uint256S(r_old_string);
-    uint256 sn = uint256S(sn_string);
+    //从字符串转uint256
+    uint256 sn_s = uint256S(sn_s_string);
+    uint256 r_s = uint256S(r_s_string);
+    uint256 cmtS = uint256S(cmt_s_string); 
     uint256 r = uint256S(r_string);
-    uint256 sn_s = uint256S(sns_string);
-    uint256 r_s = uint256S(rs_string);
-    uint256 cmtB_old = uint256S(cmtB_old_string);
-    uint256 cmtB = uint256S(cmtB_string);
-    uint256 cmtS = uint256S(cmtS_string);
+    uint256 cmtt = uint256S(cmtt_string);
 
-    Note note_old = Note(value_old, sn_old, r_old);
-    Note note_s = Note(value_s, sn_s, r_s);
-    Note note = Note(value, sn, r);
-
-    boost::array<uint256, 32> commitments; //32个cmts
-    string sss = cmtarray;
-
-    for (int i = 0; i < n; i++)
-    {
-        commitments[i] = uint256S(sss.substr(i * 66, 66)); //分割cmtarray  0x+64个十六进制数 一共66位
-    }
-
-    ZCIncrementalMerkleTree tree;
-    assert(tree.root() == ZCIncrementalMerkleTree::empty_root());
-
-    ZCIncrementalWitness wit = tree.witness(); //初始化witness
-    bool find_cmtS = false;
-    for (size_t i = 0; i < n; i++)
-    {
-        if (find_cmtS)
-        {
-            wit.append(commitments[i]);
-        }
-        else
-        {
-            /********************************************
-             * 如果删除else分支，
-             * 将tree.append(commitments[i])放到for循环体中，
-             * 最终得到的rt == wit.root() == tree.root()
-             *********************************************/
-            tree.append(commitments[i]);
-        }
-
-        if (commitments[i] == cmtS)
-        {
-            //在要证明的叶子节点添加到tree后，才算真正初始化wit，下面的root和path才会正确。
-            wit = tree.witness();
-            find_cmtS = true;
-        }
-    }
-
-    auto path = wit.path();
-    uint256 rt = wit.root();
+    //生成sha256输入
+    Note notes = Note(subcost, sn_s, r_s); //cmts
+    NoteC notecmtt = NoteC(subcost,r);     //cmtt
 
     //初始化参数
     alt_bn128_pp::init_public_params();
-
+    
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
-    cout << "Trying to read refund(user) proving key file..." << endl;
+    cout << "Trying to read declare(owner) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
-    keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/depositpk.txt");
+    keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/declarepk.txt");
     // 生成proof
-    cout << "Trying to generate refund(user) proof..." << endl;
+    cout << "Trying to generate declare(owner) proof..." << endl;
 
-    libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_deposit_proof<alt_bn128_pp>(keypair.pk,
-                                                                                                     note_s,
-                                                                                                     note_old,
-                                                                                                     note,
-                                                                                                     cmtS,
-                                                                                                     cmtB_old,
-                                                                                                     cmtB,
-                                                                                                     rt,
-                                                                                                     path,
-                                                                                                     fees,
-                                                                                                     cost);
+    libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof;
+    proof = generate_declare_proof<alt_bn128_pp>(keypair.pk,
+                                                notes,
+                                                cmtS,
+                                                notecmtt,
+                                                cmtt,
+                                                dist
+                                                );
 
     //proof转字符串
     std::string proof_string = string_proof_as_hex(proof);
@@ -397,20 +326,24 @@ char *genDepositproof(uint64_t value,
     return p;
 }
 
-bool verifyDepositproof(char *data, char *RT,  char *cmtb_old, char *snold, char *cmtb, char *sns, uint64_t fees)
+bool verifyDeclareproof(
+                        char *data, 
+                        // char *cmtS_string, 
+                        char *cmtt_string
+                        // uint64_t subdist,
+                        // uint64_t dist
+                        // uint64_t fees
+                    )
 {
-    uint256 rt = uint256S(RT);
-    uint256 cmtB_old = uint256S(cmtb_old);
-    uint256 sn_old = uint256S(snold);
-    uint256 cmtB = uint256S(cmtb);
-    uint256 sn_s = uint256S(sns);
+    // uint256 cmtS = uint256S(cmtS_string);
+    uint256 cmtt = uint256S(cmtt_string);
 
     alt_bn128_pp::init_public_params();
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
-    keypair.vk = deserializevkFromFile("/usr/local/prfKey/depositvk.txt");
+    keypair.vk = deserializevkFromFile("/usr/local/prfKey/declarevk.txt");
 
     libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof;
-
+    
     uint8_t A_g_x[64];
     uint8_t A_g_y[64];
     uint8_t A_h_x[64];
@@ -514,23 +447,19 @@ bool verifyDepositproof(char *data, char *RT,  char *cmtb_old, char *snold, char
     proof.g_K.X = k_x;
     proof.g_K.Y = k_y;
 
-    bool result = verify_deposit_proof(keypair.vk,
-                                       proof,
-                                       rt,
-                                       cmtB_old,
-                                       sn_old,
-                                       cmtB,
-                                       sn_s,
-                                       fees);
+    cout << "Trying to verify declare(owner) proof..." << endl;
+
+    bool result = verify_declare_proof(keypair.vk, proof, cmtt);
 
     if (!result)
     {
-        cout << "Verifying refund(user) proof unsuccessfully!!!" << endl;
+        cout << "Verifying divide(user) proof unsuccessfully!!!" << endl;
     }
     else
     {
-        cout << "Verifying refund(user) proof successfully!!!" << endl;
+        cout << "Verifying divide(user) proof successfully!!!" << endl;
     }
 
     return result;
 }
+

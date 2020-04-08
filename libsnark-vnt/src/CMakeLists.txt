@@ -17,6 +17,18 @@ add_library(
 )
 
 add_library(
+  zk_commit
+  SHARED
+  commit/commitcgo.cpp
+)
+
+add_library(
+  zk_declare
+  SHARED
+  declare/declarecgo.cpp
+)
+
+add_library(
   zk_claim
   SHARED
   claim/claimcgo.cpp
@@ -28,6 +40,12 @@ add_library(
   deposit_sg/deposit_sgcgo.cpp
 )
 
+add_library(
+  zk_refund
+  SHARED
+  refund/refundcgo.cpp
+)
+
 # add_library(
 #   zk_mint
 #   SHARED
@@ -35,10 +53,11 @@ add_library(
 # )
 
 # add_library(
-#   zk_commit
+#   zk_deposit
 #   SHARED
-#   commit/commitcgo.cpp
+#   deposit/depositcgo.cpp
 # )
+
 
 ###############################
 # 生成各个gadget的所需的pk，vk
@@ -64,6 +83,49 @@ target_include_directories(
 )
 
 ##################################
+add_executable(
+  commit_key
+
+  commit/getpvk.cpp
+)
+
+target_link_libraries(
+  commit_key
+
+  snark
+)
+
+target_include_directories(
+  commit_key
+
+  PUBLIC
+  ${DEPENDS_DIR}/libsnark
+  ${DEPENDS_DIR}/libsnark/depends/libfqfft
+)
+
+##################################
+add_executable(
+  declare_key
+
+  declare/getpvk.cpp
+)
+
+target_link_libraries(
+  declare_key
+
+  snark
+)
+
+target_include_directories(
+  declare_key
+
+  PUBLIC
+  ${DEPENDS_DIR}/libsnark
+  ${DEPENDS_DIR}/libsnark/depends/libfqfft
+)
+
+##################################
+
 add_executable(
   claim_key
 
@@ -106,6 +168,27 @@ target_include_directories(
 )
 
 ###################################
+add_executable(
+  refund_key
+
+  refund/getpvk.cpp
+)
+
+target_link_libraries(
+  refund_key
+
+  snark
+)
+
+target_include_directories(
+  refund_key
+
+  PUBLIC
+  ${DEPENDS_DIR}/libsnark
+  ${DEPENDS_DIR}/libsnark/depends/libfqfft
+)
+
+# #########################
 # add_executable(
 #   mint_key
 
@@ -148,27 +231,7 @@ target_include_directories(
 # )
 
 # #########################
-# add_executable(
-#   deposit_key
 
-#   deposit/getpvk.cpp
-# )
-
-# target_link_libraries(
-#   deposit_key
-
-#   snark
-# )
-
-# target_include_directories(
-#   deposit_key
-
-#   PUBLIC
-#   ${DEPENDS_DIR}/libsnark
-#   ${DEPENDS_DIR}/libsnark/depends/libfqfft
-# )
-
-# #########################
 # add_executable(
 #   redeem_key
 

@@ -9,11 +9,11 @@ package main
 import "C"
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io"
 	"unsafe"
-	"encoding/binary"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -40,7 +40,7 @@ func NewRandomInt() uint64 {
 	return r
 }
 
-func GenCMT(value uint64, sn []byte, r []byte, snA []byte) *common.Hash {
+func GenCMT(value uint64, sn []byte, r []byte) *common.Hash {
 	//sn_old_c := C.CString(common.ToHex(SNold[:]))
 	value_c := C.ulong(value)
 	sn_string := common.ToHex(sn[:])
@@ -49,11 +49,11 @@ func GenCMT(value uint64, sn []byte, r []byte, snA []byte) *common.Hash {
 	r_string := common.ToHex(r[:])
 	r_c := C.CString(r_string)
 	defer C.free(unsafe.Pointer(r_c))
-	snA_string := common.ToHex(snA[:])
-	snA_c := C.CString(snA_string)
-	defer C.free(unsafe.Pointer(snA_c))
+	// snA_string := common.ToHex(snA[:])
+	// snA_c := C.CString(snA_string)
+	// defer C.free(unsafe.Pointer(snA_c))
 
-	cmtA_c := C.genCMT(value_c, sn_c, r_c, snA_c)
+	cmtA_c := C.genCMT(value_c, sn_c, r_c)
 	cmtA_go := C.GoString(cmtA_c)
 	//res := []byte(cmtA_go)
 	res, _ := hex.DecodeString(cmtA_go)
@@ -77,12 +77,12 @@ func GenRT(CMTSForMerkle []*common.Hash) common.Hash {
 	return reshash
 }
 
-func GenCommitProof(ValueS uint64, SNS *common.Hash, RS *common.Hash, SNA *common.Hash, CMTS *common.Hash, RT []byte, CMTSForMerkle []*common.Hash) []byte {
+func GenCommitProof(ValueS uint64, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RT []byte, CMTSForMerkle []*common.Hash) []byte {
 
 	valueS := C.ulong(ValueS)
 	snS := C.CString(common.ToHex(SNS.Bytes()[:]))
 	rS := C.CString(common.ToHex(RS.Bytes()[:]))
-	snA := C.CString(common.ToHex(SNA.Bytes()[:]))
+	// snA := C.CString(common.ToHex(SNA.Bytes()[:]))
 	cmtS := C.CString(common.ToHex(CMTS[:]))
 	rt := C.CString(common.ToHex(RT))
 
@@ -94,7 +94,7 @@ func GenCommitProof(ValueS uint64, SNS *common.Hash, RS *common.Hash, SNA *commo
 	cmtsM := C.CString(cmtArray)
 	nC := C.int(len(CMTSForMerkle))
 
-	cproof := C.genCommitproof( snS, rS, snA, valueS, cmtS, cmtsM, nC, rt)
+	cproof := C.genCommitproof(snS, rS, valueS, cmtS, cmtsM, nC, rt)
 	var goproof string
 	goproof = C.GoString(cproof)
 	return []byte(goproof)
@@ -102,32 +102,31 @@ func GenCommitProof(ValueS uint64, SNS *common.Hash, RS *common.Hash, SNA *commo
 
 var InvalidCommitProof = errors.New("Verifying commit proof failed!!!")
 
-func VerifyCommitProof( ValueS uint64, SN_S *common.Hash, RT []byte, proof []byte) error {
+func VerifyCommitProof(SN_S *common.Hash, RT []byte, proof []byte) error {
 	cproof := C.CString(string(proof))
-	valueS := C.ulong(ValueS)
+	// valueS := C.ulong(ValueS)
 	snS := C.CString(common.ToHex(SN_S[:]))
 	rt := C.CString(common.ToHex(RT))
 
-	tf := C.verifyCommitproof(cproof, rt, snS, valueS)
+	tf := C.verifyCommitproof(cproof, rt, snS)
 	if tf == false {
 		return InvalidCommitProof
 	}
 	return nil
 }
 
-func main(){
+func main() {
 
 	values := NewRandomInt()
 	sn_s := NewRandomHash()
 	r_s := NewRandomHash()
-	snA := NewRandomHash()
-	cmtS := GenCMT(values, sn_s.Bytes(), r_s.Bytes(), snA.Bytes())
+	cmtS := GenCMT(values, sn_s.Bytes(), r_s.Bytes())
 
 	var cmtarray []*common.Hash
 	for i := 0; i < 32; i++ {
-		if i==9 {
+		if i == 9 {
 			cmtarray = append(cmtarray, cmtS)
-		} else{
+		} else {
 			cmt := NewRandomHash()
 			cmtarray = append(cmtarray, cmt)
 		}
@@ -135,8 +134,8 @@ func main(){
 
 	RT := GenRT(cmtarray)
 
-	proof := GenCommitProof(values, sn_s, r_s, snA, cmtS, RT.Bytes(), cmtarray)
+	proof := GenCommitProof(values, sn_s, r_s, cmtS, RT.Bytes(), cmtarray)
 
-	VerifyCommitProof(values, sn_s, RT.Bytes(), proof)
+	VerifyCommitProof(sn_s, RT.Bytes(), proof)
 
 }

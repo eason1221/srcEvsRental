@@ -199,9 +199,7 @@ std::string string_proof_as_hex(libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_
 template <typename ppzksnark_ppT>
 r1cs_ppzksnark_proof<ppzksnark_ppT> generate_commit_proof(r1cs_ppzksnark_proving_key<ppzksnark_ppT> proving_key,
                                                            const NoteS &note_s,
-                                                           const NoteC &note_c,
                                                            uint256 cmtS,
-                                                           uint256 cmtC,
                                                            const uint256 &rt,
                                                            const MerklePath &path)
 {
@@ -211,7 +209,7 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_commit_proof(r1cs_ppzksnark_proving
     commit_gadget<FieldT> commit(pb);  // 构造新模型
     commit.generate_r1cs_constraints(); // 生成约束
 
-    commit.generate_r1cs_witness(note_s, note_c, cmtS, cmtC, rt, path); // 为新模型的参数生成证明
+    commit.generate_r1cs_witness(note_s, cmtS, rt, path); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
@@ -229,15 +227,15 @@ template <typename ppzksnark_ppT>
 bool verify_commit_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
                           r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
                           const uint256 &rt,
-                          const uint256 &sn_s,
-                          const uint256 &cmtC)
+                          const uint256 &sn_s
+                          )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
 
     const r1cs_primary_input<FieldT> input = commit_gadget<FieldT>::witness_map(
         rt,
-        sn_s,
-        cmtC);
+        sn_s
+        );
 
     // 调用libsnark库中验证proof的函数
     return r1cs_ppzksnark_verifier_strong_IC<ppzksnark_ppT>(verification_key, input, proof);
@@ -259,23 +257,23 @@ char *genCMT(uint64_t value, char *sn_string, char *r_string)
 }
 
 //func GenCMT_1(value uint64, r []byte)
-char *genCMT_1(uint64_t value, char *r_string)
-{
-    uint256 r = uint256S(r_string);
-    NoteC note = NoteC(value, r);
-    uint256 cmtA = note.cm();
-    std::string cmtA_c = cmtA.ToString();
-    char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0
-    cmtA_c.copy(p, 64, 0);
-    *(p + 64) = '\0'; //手动加结束符
+// char *genCMT2(uint64_t value, char *r_string)
+// {
+//     uint256 r = uint256S(r_string);
+//     NoteC note = NoteC(value, r);
+//     uint256 cmtA = note.cm();
+//     std::string cmtA_c = cmtA.ToString();
+//     char *p = new char[65]; //必须使用new开辟空间 不然cgo调用该函数结束全为0
+//     cmtA_c.copy(p, 64, 0);
+//     *(p + 64) = '\0'; //手动加结束符
 
-    return p;
-}
+//     return p;
+// }
 
 
 char *genRoot(char *cmtarray, int n)
 {
-    boost::array<uint256, 32> commitments; //16个cmts
+    boost::array<uint256, 32> commitments; //32个cmts
 
     string s = cmtarray;
 
@@ -300,10 +298,8 @@ char *genRoot(char *cmtarray, int n)
 
 char *genCommitproof(char *sns_string,
                       char *rs_string,
-                      char *rc_string,
                       uint64_t value_s,
                       char *cmtS_string,
-                      char *cmtC_string,
                       char *cmtarray,
                       int n,
                       char *RT)
@@ -312,10 +308,6 @@ char *genCommitproof(char *sns_string,
     uint256 r_s = uint256S(rs_string);
     uint256 cmtS = uint256S(cmtS_string);
     NoteS note_s = NoteS(value_s, sn_s, r_s);
-
-    uint256 r_c = uint256S(rc_string);
-    uint256 cmtC = uint256S(cmtC_string);
-    NoteC note_c = NoteC(value_s, r_c);
 
     boost::array<uint256, 32> commitments; //32个cmts
     string sss = cmtarray;
@@ -370,9 +362,7 @@ char *genCommitproof(char *sns_string,
 
     libsnark::r1cs_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_commit_proof<alt_bn128_pp>(keypair.pk,
                                                                                                      note_s,
-                                                                                                     note_c,
                                                                                                      cmtS,
-                                                                                                     cmtC,
                                                                                                      rt,
                                                                                                      path);
 
@@ -386,11 +376,10 @@ char *genCommitproof(char *sns_string,
     return p;
 }
 
-bool verifyCommitproof(char *data, char *RT, char *sns_string, char *cmtC_string)
+bool verifyCommitproof(char *data, char *RT, char *sns_string)
 {
     uint256 rt = uint256S(RT);
     uint256 sn_S = uint256S(sns_string);
-    uint256 cmtC = uint256S(cmtC_string);
 
     //获取vk
     alt_bn128_pp::init_public_params();
@@ -502,11 +491,13 @@ bool verifyCommitproof(char *data, char *RT, char *sns_string, char *cmtC_string
     proof.g_K.X = k_x;
     proof.g_K.Y = k_y;
 
+    cout << "Trying to verify commit proof..." << endl;
+
     bool result = verify_commit_proof(keypair.vk,
                                        proof,
                                        rt,
-                                       sn_S,
-                                       cmtC);
+                                       sn_S
+                                       );
 
     if (!result)
     {
