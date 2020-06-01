@@ -199,7 +199,10 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_declare_proof(r1cs_ppzksnark_provin
                                                         uint256 cmtS,
                                                         NoteC &notecmtt,
                                                         uint256 cmtt,
-                                                        uint64_t dist
+                                                        // uint64_t dist
+                                                        NoteC &noteds,
+                                                        uint256 ds
+
                                                         )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
@@ -207,7 +210,7 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_declare_proof(r1cs_ppzksnark_provin
     protoboard<FieldT> pb;         // 定义原始模型，该模型包含constraint_system成员变量
     declare_gadget<FieldT> g(pb);    // 构造新模型
     g.generate_r1cs_constraints(); // 生成约束
-    g.generate_r1cs_witness(notes, notecmtt, cmtS, cmtt, dist); // 为新模型的参数生成证明
+    g.generate_r1cs_witness(notes, notecmtt, noteds, cmtS, cmtt, ds); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
@@ -225,7 +228,8 @@ template <typename ppzksnark_ppT>
 bool verify_declare_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verification_key,
                   r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
                 //   uint256 &cmtS,
-                  uint256 &cmtt
+                  uint256 &cmtt,
+                  uint256 &ds
                 //   uint64_t subdist,
                 //   uint64_t dist
                 //   uint64_t fees
@@ -235,7 +239,8 @@ bool verify_declare_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verific
 
     const r1cs_primary_input<FieldT> input = declare_gadget<FieldT>::witness_map(
         // cmtS,
-        cmtt
+        cmtt,
+        ds
         // subdist,
         // dist
         // fees
@@ -282,7 +287,9 @@ char *genDeclareproof(
                         char *r_string,
                         char *cmtt_string,
                         uint64_t subcost,
-                        uint64_t dist
+                        uint64_t dist,
+                        //
+                        char *ds_string
 
                     )
 {
@@ -292,10 +299,14 @@ char *genDeclareproof(
     uint256 cmtS = uint256S(cmt_s_string); 
     uint256 r = uint256S(r_string);
     uint256 cmtt = uint256S(cmtt_string);
+    //
+    uint256 ds = uint256S(ds_string);
 
     //生成sha256输入
     Note notes = Note(subcost, sn_s, r_s); //cmts
     NoteC notecmtt = NoteC(subcost,r);     //cmtt
+    //
+    NoteC noteds = NoteC(dist,sn_s);
 
     //初始化参数
     alt_bn128_pp::init_public_params();
@@ -313,7 +324,9 @@ char *genDeclareproof(
                                                 cmtS,
                                                 notecmtt,
                                                 cmtt,
-                                                dist
+                                                // dist
+                                                noteds,
+                                                ds
                                                 );
 
     //proof转字符串
@@ -329,7 +342,8 @@ char *genDeclareproof(
 bool verifyDeclareproof(
                         char *data, 
                         // char *cmtS_string, 
-                        char *cmtt_string
+                        char *cmtt_string,
+                        char *ds_string
                         // uint64_t subdist,
                         // uint64_t dist
                         // uint64_t fees
@@ -337,6 +351,7 @@ bool verifyDeclareproof(
 {
     // uint256 cmtS = uint256S(cmtS_string);
     uint256 cmtt = uint256S(cmtt_string);
+    uint256 ds = uint256S(ds_string);
 
     alt_bn128_pp::init_public_params();
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
@@ -449,15 +464,15 @@ bool verifyDeclareproof(
 
     cout << "Trying to verify declare(owner) proof..." << endl;
 
-    bool result = verify_declare_proof(keypair.vk, proof, cmtt);
+    bool result = verify_declare_proof(keypair.vk, proof, cmtt, ds);
 
     if (!result)
     {
-        cout << "Verifying divide(user) proof unsuccessfully!!!" << endl;
+        cout << "Verifying declare(owner) proof unsuccessfully!!!" << endl;
     }
     else
     {
-        cout << "Verifying divide(user) proof successfully!!!" << endl;
+        cout << "Verifying declare(owner) proof successfully!!!" << endl;
     }
 
     return result;

@@ -1,7 +1,8 @@
 package zktx
 
 /*
-#cgo LDFLAGS: -L/usr/local/lib -lzk_deposit_sg -lzk_refund -lzk_mint -lzk_redeem -lzk_convert -lzk_commit -lzk_declare -lzk_claim -lff  -lsnark -lstdc++  -lgmp -lgmpxx
+#cgo LDFLAGS: -L/usr/local/lib -lzk_deposit_sg -lzk_convert -lzk_commit -lzk_declare -lzk_mint -lzk_redeem -lff  -lsnark -lstdc++  -lgmp -lgmpxx
+#cgo LDFLAGS: -L/usr/local/lib -lzk_refund -lzk_claim -lff  -lsnark -lstdc++  -lgmp -lgmpxx
 
 
 #include "mintcgo.hpp"
@@ -397,15 +398,14 @@ func GenConvertProof(CMTA *common.Hash, ValueA uint64, RA *common.Hash, ValueS u
 
 var InvalidConvertProof = errors.New("Verifying Cost(user) proof failed!!!")
 
-func VerifyConvertProof(sns *common.Hash, sna *common.Hash, cmts *common.Hash, proof []byte, cmtAold *common.Hash, cmtAnew *common.Hash) error {
+func VerifyConvertProof(sna *common.Hash, cmts *common.Hash, proof []byte, cmtAold *common.Hash, cmtAnew *common.Hash) error {
 	cproof := C.CString(string(proof))
 	snAold_c := C.CString(common.ToHex(sna.Bytes()[:]))
-	snS := C.CString(common.ToHex(sns.Bytes()[:]))
 	cmtS := C.CString(common.ToHex(cmts[:]))
 	cmtAold_c := C.CString(common.ToHex(cmtAold[:]))
 	cmtAnew_c := C.CString(common.ToHex(cmtAnew[:]))
 	t1 := time.Now()
-	tf := C.verifyConvertproof(cproof, cmtAold_c, snS, snAold_c, cmtS, cmtAnew_c)
+	tf := C.verifyConvertproof(cproof, cmtAold_c, snAold_c, cmtS, cmtAnew_c)
 	t2 := time.Now()
 	verifyConvertproof_time := t2.Sub(t1)
 	log.Info("---------------------------------verifyCost(user)proof_time---------------------------------")
@@ -416,61 +416,106 @@ func VerifyConvertProof(sns *common.Hash, sna *common.Hash, cmts *common.Hash, p
 	return nil
 }
 
-// func GenCommitProof(ValueS uint64, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RC *common.Hash, CMTC *common.Hash, RT []byte, CMTSForMerkle []*common.Hash) []byte {
+func GenCommitProof(ValueS uint64, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RT common.Hash, CMTSForMerkle []*common.Hash) []byte {
 
-// 	valueS := C.ulong(ValueS)
-// 	snS := C.CString(common.ToHex(SNS.Bytes()[:]))
-// 	rS := C.CString(common.ToHex(RS.Bytes()[:]))
-// 	cmtS := C.CString(common.ToHex(CMTS.Bytes()[:]))
-// 	rC := C.CString(common.ToHex(RC.Bytes()[:]))
-// 	cmtC := C.CString(common.ToHex(CMTC.Bytes()[:]))
-// 	rt := C.CString(common.ToHex(RT))
+	valueS := C.ulong(ValueS)
+	snS := C.CString(common.ToHex(SNS.Bytes()[:]))
+	rS := C.CString(common.ToHex(RS.Bytes()[:]))
+	cmtS := C.CString(common.ToHex(CMTS.Bytes()[:]))
 
-// 	var cmtArray string
-// 	for i := 0; i < len(CMTSForMerkle); i++ {
-// 		s := string(common.ToHex(CMTSForMerkle[i][:]))
-// 		cmtArray += s
-// 	}
-// 	cmtsM := C.CString(cmtArray)
-// 	nC := C.int(len(CMTSForMerkle))
-// 	fmt.Println("invoke C interface ......")
-// 	cproof := C.genCommitproof(snS, rS, rC, valueS, cmtS, cmtC, cmtsM, nC, rt)
+	rt := C.CString(common.ToHex(RT[:]))
 
-// 	var goproof string
-// 	goproof = C.GoString(cproof)
-// 	return []byte(goproof)
-// }
+	var cmtArray string
+	for i := 0; i < len(CMTSForMerkle); i++ {
+		s := string(common.ToHex(CMTSForMerkle[i][:]))
+		cmtArray += s
+	}
+	cmtsM := C.CString(cmtArray)
+	nC := C.int(len(CMTSForMerkle))
+	t1 := time.Now()
+	cproof := C.genCommitproof(snS, rS, valueS, cmtS, cmtsM, nC, rt)
+	t2 := time.Now()
+	genCommitproof_time := t2.Sub(t1)
+	log.Info("---------------------------------genCommit(user)proof_time---------------------------------")
+	log.Info(fmt.Sprintf("genCommit(user)proof_time = %v ", genCommitproof_time))
+	var goproof string
+	goproof = C.GoString(cproof)
+	return []byte(goproof)
+}
 
-// var InvalidCommitProof = errors.New("Verifying commit proof failed!!!")
+var InvalidCommitProof = errors.New("Verifying commit proof failed!!!")
 
-// func VerifyCommitProof(CMTC *common.Hash, SN_S *common.Hash, RT []byte, proof []byte) error {
-// 	cproof := C.CString(string(proof))
-// 	defer C.free(unsafe.Pointer(cproof))
-// 	cmtC := C.CString(common.ToHex(CMTC[:]))
-// 	defer C.free(unsafe.Pointer(cmtC))
-// 	snS := C.CString(common.ToHex(SN_S[:]))
-// 	defer C.free(unsafe.Pointer(snS))
-// 	rt := C.CString(common.ToHex(RT))
-// 	defer C.free(unsafe.Pointer(rt))
-// 	t1 := time.Now()
-// 	tf := C.verifyCommitproof(cproof, rt, snS, cmtC)
-// 	t2 := time.Now()
-// 	verifyCommitproof_time := t2.Sub(t1)
-// 	log.Info("---------------------------------verifyCommitproof_time---------------------------------")
-// 	log.Info(fmt.Sprintf("verifyCommitproof_time = %v ", verifyCommitproof_time))
-// 	if tf == false {
-// 		return InvalidCommitProof
-// 	}
-// 	return nil
-// }
+func VerifyCommitProof(SN_S *common.Hash, RT common.Hash, proof []byte) error {
+	cproof := C.CString(string(proof))
+	snS := C.CString(common.ToHex(SN_S[:]))
+	rt := C.CString(common.ToHex(RT[:]))
+	t1 := time.Now()
+	tf := C.verifyCommitproof(cproof, rt, snS)
+	t2 := time.Now()
+	verifyCommitproof_time := t2.Sub(t1)
+	log.Info("---------------------------------verifyCommit(user)userproof_time---------------------------------")
+	log.Info(fmt.Sprintf("verifyCommit(user)proof_time = %v ", verifyCommitproof_time))
+	if tf == false {
+		return InvalidCommitProof
+	}
+	return nil
+}
+
+func GenDeclareProof(DS *common.Hash, RC *common.Hash, CMTTC *common.Hash, subcost uint64, dist uint64, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash) []byte {
+
+	subcost_c := C.ulong(subcost)
+	dist_c := C.ulong(dist)
+	SNS_c := C.CString(common.ToHex(SNS.Bytes()[:]))
+	RS_c := C.CString(common.ToHex(RS.Bytes()[:]))
+	cmtS_c := C.CString(common.ToHex(CMTS[:]))
+
+	R_c := C.CString(common.ToHex(RC.Bytes()[:]))
+	cmtt_C := C.CString(common.ToHex(CMTTC.Bytes()[:]))
+
+	ds_c := C.CString(common.ToHex(DS[:]))
+
+	t1 := time.Now()
+	cproof := C.genDeclareproof(SNS_c, RS_c, cmtS_c, R_c, cmtt_C, subcost_c, dist_c, ds_c)
+	t2 := time.Now()
+	genDepositsgproof_time := t2.Sub(t1)
+	log.Info("---------------------------------genDeclare(owner)proof_time---------------------------------")
+	log.Info(fmt.Sprintf("genDeclare(owner)proof_time = %v ", genDepositsgproof_time))
+	var goproof string
+	goproof = C.GoString(cproof)
+	return []byte(goproof)
+}
+
+var InvalidDeclareProof = errors.New("Verifying verifyDeclare(owner) proof failed!!!")
+
+func VerifyDeclareProof(ds *common.Hash, cmtt *common.Hash, proof []byte) error {
+
+	cproof := C.CString(string(proof))
+	cmtt_C := C.CString(common.ToHex(cmtt[:]))
+	ds_C := C.CString(common.ToHex(ds[:]))
+	t1 := time.Now()
+	tf := C.verifyDeclareproof(cproof, cmtt_C, ds_C)
+	t2 := time.Now()
+	verifyDepositsgproof_time := t2.Sub(t1)
+	log.Info("---------------------------------verifyDeclare(owner)_time---------------------------------")
+	log.Info(fmt.Sprintf("verifyDeclare(owner)_time = %v ", verifyDepositsgproof_time))
+	if tf == false {
+		return InvalidDeclareProof
+	}
+	return nil
+}
 
 func GenClaimProof(cost uint64, subcost uint64, dist uint64, subdist uint64, fees uint64, refundi uint64, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RC *common.Hash, CMTT *common.Hash) []byte {
 
 	snS := C.CString(common.ToHex(SNS.Bytes()[:]))
+	defer C.free(unsafe.Pointer(snS))
 	rS := C.CString(common.ToHex(RS.Bytes()[:]))
+	defer C.free(unsafe.Pointer(rS))
 	cmtS := C.CString(common.ToHex(CMTS[:]))
+	defer C.free(unsafe.Pointer(cmtS))
 	rC := C.CString(common.ToHex(RC.Bytes()[:]))
+	defer C.free(unsafe.Pointer(rC))
 	cmtT := C.CString(common.ToHex(CMTT[:]))
+	defer C.free(unsafe.Pointer(cmtT))
 	costC := C.ulong(cost)
 	subcostC := C.ulong(subcost)
 	distC := C.ulong(dist)
@@ -494,9 +539,11 @@ var InvalidClaimProof = errors.New("Verifying Divide(user) proof failed!!!")
 func VerifyClaimProof(cmts *common.Hash, cmtt *common.Hash, subdist uint64, dist uint64, fees uint64, proof []byte) error {
 
 	cproof := C.CString(string(proof))
-	// defer C.free(unsafe.Pointer(cproof))
+	defer C.free(unsafe.Pointer(cproof))
 	cmtS := C.CString(common.ToHex(cmts[:]))
+	defer C.free(unsafe.Pointer(cmtS))
 	cmtT := C.CString(common.ToHex(cmtt[:]))
+	defer C.free(unsafe.Pointer(cmtT))
 	subdistC := C.ulong(subdist)
 	distC := C.ulong(dist)
 	feesC := C.ulong(fees)
@@ -519,19 +566,31 @@ func GenDepositsgProof(RC *common.Hash, CMTTC *common.Hash, ValueS uint64, SNS *
 
 	valueS_c := C.ulong(ValueS)
 	SNS_c := C.CString(common.ToHex(SNS.Bytes()[:])) //--zy
-	RS_c := C.CString(common.ToHex(RS.Bytes()[:]))   //--zy
+	defer C.free(unsafe.Pointer(SNS_c))
+	RS_c := C.CString(common.ToHex(RS.Bytes()[:])) //--zy
+	defer C.free(unsafe.Pointer(RS_c))
 	cmtS_c := C.CString(common.ToHex(CMTS[:]))
+	defer C.free(unsafe.Pointer(cmtS_c))
 	valueB_c := C.ulong(ValueB)
 	SNB_c := C.CString(common.ToHex(SNB.Bytes()[:]))
+	defer C.free(unsafe.Pointer(SNB_c))
 	RB_c := C.CString(common.ToHex(RB.Bytes()[:]))
+	defer C.free(unsafe.Pointer(RB_c))
 	cmtB_c := C.CString(common.ToHex(CMTB[:]))
+	defer C.free(unsafe.Pointer(cmtB_c))
 	valueBNew_c := C.ulong(ValueB + ValueS)
 	SNBnew_c := C.CString(common.ToHex(SNBnew.Bytes()[:]))
+	defer C.free(unsafe.Pointer(SNBnew_c))
 	RBnew_c := C.CString(common.ToHex(RBnew.Bytes()[:]))
+	defer C.free(unsafe.Pointer(RBnew_c))
 	cmtBnew_c := C.CString(common.ToHex(CMTBnew[:]))
+	defer C.free(unsafe.Pointer(cmtBnew_c))
 	RT_c := C.CString(common.ToHex(RTcmt)) //--zy   rt
+	defer C.free(unsafe.Pointer(RT_c))
 	R_c := C.CString(common.ToHex(RC.Bytes()[:]))
+	defer C.free(unsafe.Pointer(R_c))
 	cmtt_C := C.CString(common.ToHex(CMTTC.Bytes()[:]))
+	defer C.free(unsafe.Pointer(cmtt_C))
 
 	var cmtArray string
 	for i := 0; i < len(CMTSForMerkle); i++ {
@@ -555,12 +614,19 @@ var InvalidDepositsgProof = errors.New("Verifying verifyCollect(owner) proof fai
 
 func VerifyDepositsgProof(cmtt *common.Hash, sns *common.Hash, rtcmt common.Hash, cmtb *common.Hash, snb *common.Hash, cmtbnew *common.Hash, proof []byte) error {
 	SNS_c := C.CString(common.ToHex(sns.Bytes()[:]))
+	defer C.free(unsafe.Pointer(SNS_c))
 	cproof := C.CString(string(proof))
+	defer C.free(unsafe.Pointer(cproof))
 	rtmCmt := C.CString(common.ToHex(rtcmt[:]))
+	defer C.free(unsafe.Pointer(rtmCmt))
 	cmtB := C.CString(common.ToHex(cmtb[:]))
+	defer C.free(unsafe.Pointer(cmtB))
 	cmtBnew := C.CString(common.ToHex(cmtbnew[:]))
+	defer C.free(unsafe.Pointer(cmtBnew))
 	SNB_c := C.CString(common.ToHex(snb.Bytes()[:]))
+	defer C.free(unsafe.Pointer(SNB_c))
 	cmtt_C := C.CString(common.ToHex(cmtt[:]))
+	defer C.free(unsafe.Pointer(cmtt_C))
 	t1 := time.Now()
 	tf := C.verifyDepositsgproof(cproof, rtmCmt, SNS_c, cmtB, SNB_c, cmtBnew, cmtt_C)
 	t2 := time.Now()
@@ -602,7 +668,7 @@ func GenDepositProof(fees uint64, cost uint64, ValueS uint64, SNS *common.Hash, 
 	cmtsM := C.CString(cmtArray)
 	nC := C.int(len(CMTSForMerkle))
 	t1 := time.Now()
-	cproof := C.genDepositproof(valueBNew_c, valueB_c, SNB_c, RB_c, SNBnew_c, RBnew_c, SNS_c, RS_c, cmtB_c, cmtBnew_c, valueS_c, cmtS_c, cmtsM, nC, RT_c, fees_C, cost_C)
+	cproof := C.genRefundproof(valueBNew_c, valueB_c, SNB_c, RB_c, SNBnew_c, RBnew_c, SNS_c, RS_c, cmtB_c, cmtBnew_c, valueS_c, cmtS_c, cmtsM, nC, RT_c, fees_C, cost_C)
 	t2 := time.Now()
 	genDepositsgproof_time := t2.Sub(t1)
 	log.Info("---------------------------------genRefund(user)proof_time---------------------------------")
@@ -624,7 +690,7 @@ func VerifyDepositProof(fees uint64, sns *common.Hash, rtcmt common.Hash, cmtb *
 	SNS_c := C.CString(common.ToHex(sns.Bytes()[:]))
 	fees_C := C.ulong(fees)
 	t1 := time.Now()
-	tf := C.verifyDepositproof(cproof, rtmCmt, cmtB, snold_C, cmtBnew, SNS_c, fees_C)
+	tf := C.verifyRefundproof(cproof, rtmCmt, cmtB, snold_C, cmtBnew, SNS_c, fees_C)
 	t2 := time.Now()
 	verifyDepositsgproof_time := t2.Sub(t1)
 	log.Info("---------------------------------verifyRefund(user)_time---------------------------------")

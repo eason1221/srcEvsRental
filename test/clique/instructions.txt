@@ -1,27 +1,6 @@
 rm -rf node1/data/geth node1/data/SN node2/data/geth node2/data/SN signer1/data/geth signer1/data/SN signer2/data/geth signer2/data/SN 
 
 
-==================================================================
-
-geth --datadir node1/data account new
-
-clear
-
-geth --datadir node1/data init clique.json
-
-geth --datadir node1/data --networkid 55661 --port 2007 --unlock 799ad5ef734ff6b0ece2f80826abc299934d6845 --password node1/passwd.txt console
-exit
-===================================================================
-
-geth --datadir node2/data account new
-
-clear
-
-geth --datadir node2/data init clique.json
-
-geth --datadir node2/data --networkid 55661 --port 2008 --unlock f5acda449a0bdeed4de774383541d5594963a4e7 --password node2/passwd.txt console
-
-===================================================================
 
 
 geth --datadir signer1/data account new
@@ -30,7 +9,7 @@ clear
 
 geth --datadir signer1/data init clique.json
 
-geth --datadir signer1/data --networkid 55661 --port 2005 --unlock 9063f79a994169f8b4f991e431abe0d28cfc9e4c --password signer1/passwd.txt console
+geth --datadir signer1/data --networkid 55662 --port 2010 --unlock 427c9b39dbc00ae13584fe5ec7f56dc834771679 --password signer1/passwd.txt console
 
 eth.sendPublicTransaction({from:eth.accounts[0],to:"156669f9f391aa6a77c494ec6bd4a7761a6541b7",value:web3.toWei(0.05, "ether")})
 

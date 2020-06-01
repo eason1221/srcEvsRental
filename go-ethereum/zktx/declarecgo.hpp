@@ -16,12 +16,14 @@ extern "C"
                         char *r_string,
                         char *cmt_t_string,
                         uint64_t subcost,
-                        uint64_t dist
+                        uint64_t dist,
+                        char *ds_string
                     );
 
     bool verifyDeclareproof(
                         char *data, 
-                        char *cmtt_string
+                        char *cmtt_string,
+                        char *ds_string
                     );
 
 #ifdef __cplusplus

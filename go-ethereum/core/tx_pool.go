@@ -738,24 +738,42 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 
 	if txCode == types.MintTx {
+		log.Info("============================tx_pool.go verify============================")
 		err = zktx.VerifyMintProof(tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()) //TBD
 		if err != nil {
 			return err
 		}
 	}
 	if txCode == types.ConvertTx {
-		err = zktx.VerifyConvertProof(tx.ZKSNS(), tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), tx.ZKCMTOLD(), tx.ZKCMT()) //TBD
+		log.Info("============================tx_pool.go verify============================")
+		err = zktx.VerifyConvertProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), tx.ZKCMTOLD(), tx.ZKCMT()) //TBD
+		if err != nil {
+			return err
+		}
+	}
+	if txCode == types.CommitTx {
+		log.Info("============================tx_pool.go verify============================")
+		err = zktx.VerifyCommitProof(tx.ZKSNS(), tx.RTcmt(), tx.ZKProof()) //TBD
+		if err != nil {
+			return err
+		}
+	}
+	if txCode == types.DeclareTx {
+		log.Info("============================tx_pool.go verify============================")
+		err = zktx.VerifyDeclareProof(tx.ZKCMT(), tx.ZKCMTS(), tx.ZKProof()) //TBD
 		if err != nil {
 			return err
 		}
 	}
 	if txCode == types.ClaimTx {
+		log.Info("============================tx_pool.go verify============================")
 		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKCMT(), uint64(20), uint64(8), uint64(100), tx.ZKProof()) //TBD
 		if err != nil {
 			return err
 		}
 	}
 	if txCode == types.DepositsgTx {
+		log.Info("============================tx_pool.go verify============================")
 		err = zktx.VerifyDepositsgProof(tx.ZKCMTT(), tx.ZKSNS(), tx.RTcmt(), tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
 		if err != nil {
 			return err
@@ -769,7 +787,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		}
 	}
 
-	if txCode == types.DepositsgTx || txCode == types.RefundTx {
+	if txCode == types.DepositsgTx || txCode == types.RefundTx || txCode == types.CommitTx {
 		var cmtArr []*common.Hash
 		l := tx.Cmtarr()
 		for i := 0; i < len(l); i++ {
@@ -780,6 +798,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		if txCMTroot != cmtRoot {
 			return errors.New("invalid CMTRoot")
 		}
+		log.Info("============================verify cmtRoot success!!!")
 	}
 	return nil
 }

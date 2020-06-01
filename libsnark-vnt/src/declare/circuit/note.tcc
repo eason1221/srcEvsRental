@@ -49,7 +49,7 @@ public:
         }
         /*
 
-        1、subcost = 5 × dist
+        1、subcost = 5 × dist 此处pn=5
 
         */
         this->pb.add_r1cs_constraint(r1cs_constraint<FieldT>(5, this->dist_packed, this->subcost_packed),
@@ -60,7 +60,7 @@ public:
         r->generate_r1cs_constraints(); // 随机数的约束
     }
 
-    void generate_r1cs_witness(const Note& notes, const NoteC& notecmtt, uint64_t dist_data) { // 为变量生成约束        
+    void generate_r1cs_witness(const Note& notes, const NoteC& notecmtt, const NoteC& noteds) { // 为变量生成约束        
 
         sn_s->bits.fill_with_bits(this->pb, uint256_to_bool_vector(notes.sn));
         r_s->bits.fill_with_bits(this->pb, uint256_to_bool_vector(notes.r));
@@ -70,7 +70,7 @@ public:
         
         r->bits.fill_with_bits(this->pb, uint256_to_bool_vector(notecmtt.r));
 
-        dist.fill_with_bits(this->pb, uint64_to_bool_vector(dist_data));//dist
+        dist.fill_with_bits(this->pb, uint64_to_bool_vector(noteds.value));//dist
         this->pb.lc_val(dist_packed) = dist.get_field_element_from_bits_by_order(this->pb);
     }
 };

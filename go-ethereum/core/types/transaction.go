@@ -48,6 +48,7 @@ const (
 	ClaimTx     uint8 = 0x08
 	RefundTx    uint8 = 0x09
 	DepositsgTx uint8 = 0x0a
+	DeclareTx   uint8 = 0x0b
 )
 
 // Type of transaction using string --Agzs 09.17
@@ -62,6 +63,7 @@ var CommitTxStr string = "Commit Transaction"
 var ClaimTxStr string = "Claim Transaction"
 var RefundTxStr string = "Refund Transaction"
 var DepositsgTxStr string = "Depositsg Transaction"
+var DeclareTxStr string = "Declare Transaction"
 
 type Transaction struct {
 	data txdata
@@ -450,6 +452,8 @@ func (tx *Transaction) GetTxCodeStr() string {
 		return ConvertTxStr
 	} else if tx.Code() == CommitTx {
 		return CommitTxStr
+	} else if tx.Code() == DeclareTx {
+		return DeclareTxStr
 	} else if tx.Code() == ClaimTx {
 		return ClaimTxStr
 	} else if tx.Code() == RefundTx {

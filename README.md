@@ -1,5 +1,4 @@
-# EvsRental
-
+# Vehicloak
 
 * test/clique can test geth using clique consensus algorithm (PoA)
 * test/pow can run test using ethash consensus algorithm (PoW)
@@ -23,7 +22,65 @@
 go version >= 1.10
 ```
 
-### 二、github版编译
+> Note: 从共享文件夹中将prfKey文件夹拷贝至/usr/local目录下!!!
+
+### 二、压缩版编译
+
+1、将项目源码拷贝到 `$GOPATH/src/github.com`目录，解压到ethereum文件夹下
+```
+tar -xzvf VNT-libsnark.tar.gz ethereum
+```
+
+2、项目路径为`$GOPATH/src/github.com/ethereum/`，项目目录为：
+```
+   ethereum
+   -- prfKey        保存libsnark的pk和vk
+   -- test          以太坊的私有链搭建及项目整体测试
+   -- go-ethereum   基于040dd5bd5d9ecf05cce666eeb395bc18e5e91342分支进行修改
+   -- libsnark      基于libsnark实现的云象零知识证明方案
+```
+> Note: 所有geth终端使用同一份prfKey
+
+3、将`prfKey`文件夹拷贝至`/usr/local`目录下，并查看是否有读写的权限
+```   
+   sudo cp -r prfKey /usr/local
+```
+
+4、编译`libsnark`，并设置动态库
+```
+   cd ethereum/libsnark-vnt
+   
+   mkdir build && cd build
+
+   cmake ..
+
+   make
+
+   sudo cp -i ./src/libzk* ./depends/libsnark/libsnark/libsnark.so ./depends/libsnark/depends/libff/libff/libff.so /usr/local/lib
+
+   sudo gedit ~/.bashrc
+
+   //将下面一行添加到文件最后，保存
+   export LD_LIBRARY_PATH=/usr/local/lib
+```
+
+5、编译以太坊
+> Note: 由于`cmts`将被组织为`merkle tree`, 考虑效率问题，`libsnark`中将其树高设为`5`,叶子节点数为`2^5=32`，</br>
+   `go-ethereum`测试时可将`go-ethereum/zktx/zktx.go`中的`ZKCMTNODES`设为`1`, 实际使用时，`ZKCMTNODES`设为`20`即可。
+
+```
+   cd ethereum/go-ethereum
+
+   go install -v ./cmd/geth
+```
+
+> Note: 运行上述指令时，可能提示权限不够，使用`sudo`提示找不到命令，可参考[博客](https://www.cnblogs.com/chr-wonder/p/8464224.html) </br>
+必须设置`env_keep` 中的`Defaults  env_keep="GOPATH"` </br>
+运行geth时，必须指定相对或绝对路径的`geth`，本机可能之前装过`geth`，注意区分; </br>
+不再使用make编译geth，通过go install编译的geth在$GOPATH/bin目录下 </br>
+可以将$GOPATH/bin添加到~/.bashrc中，然后就可以直接在任何目录下执行geth的指令了 </br>
+
+### 三、github版编译
 
 首先，将prfKey文件夹拷贝至/usr/local目录下，并查看是否有读写的权限
 ```
@@ -37,9 +94,13 @@ sudo cp -r prfKey /usr/local
 ```
 cd $GOPATH/src/github.com
 
-git clone https://github.com/eason1221/srcEvsRental.git ethereum
+git clone https://github.com/Agzs/VNT.git ethereum
 
 cd ethereum
+
+git checkout final
+
+git branch //确定当前分支为final
 
 cd libsnark-vnt
 
@@ -68,7 +129,7 @@ go install -v ./cmd/geth
 不再使用make编译geth，通过go install编译的geth在$GOPATH/bin目录下 </br>
 可以将$GOPATH/bin添加到~/.bashrc中，然后就可以直接在任何目录下执行geth的指令了 </br>
 
-### 三、操作步骤
+### 四、操作步骤
 > Note: 执行零知识操作的账户的明文余额不得超过64bits
 ```
 // 节点连接

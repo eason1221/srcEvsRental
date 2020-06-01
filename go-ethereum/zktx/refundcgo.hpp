@@ -8,7 +8,7 @@ extern "C"
 
     char *genCMT(uint64_t value, char *sn_string, char *r_string);
     char* genRoot(char* cmtarray,int n);
-    char *genDepositproof(uint64_t value,
+    char *genRefundproof(uint64_t value,
                           uint64_t value_old,
                           char *sn_old_string,
                           char *r_old_string,
@@ -26,7 +26,7 @@ extern "C"
                           uint64_t fees,
                           uint64_t cost);
 
-    bool verifyDepositproof(char *data, char *RT,  char *cmtb_old, char *snold, char *cmtb, char *sns_string, uint64_t fees);
+    bool verifyRefundproof(char *data, char *RT,  char *cmtb_old, char *snold, char *cmtb, char *sns_string, uint64_t fees);
 
 #ifdef __cplusplus
 } // extern "C"

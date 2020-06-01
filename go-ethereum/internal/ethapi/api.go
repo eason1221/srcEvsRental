@@ -1189,14 +1189,15 @@ type SendTxArgs struct {
 	Key    string      `json:"key"`
 	TxHash common.Hash `json:"txHash"`
 	// parameters of contract function
-	Fees         *hexutil.Big   `json:"fees"`      //user租车所用押金
-	Subcosts     *hexutil.Big   `json:"subcosts"`  //总租车费用
-	Subdists     *hexutil.Big   `json:"subdists"`  //所有user总租车里程
-	Disti        *hexutil.Big   `json:"disti"`     //单个user的租车里程
-	Costi        *hexutil.Big   `json:"costi"`     //单个user的租车费用
-	Refundi      *hexutil.Big   `json:"refundi"`   //单个user需要认领的剩余租车押金
-	addressowner common.Address `json:"addrowner"` //owner的账户地址
-	Cmtt         common.Hash    `json:"cmtt"`
+	Fees     *hexutil.Big   `json:"fees"`     //user租车所用押金
+	Dists    *hexutil.Big   `json:"dists"`    //计算subcost的dist
+	Subcosts *hexutil.Big   `json:"subcosts"` //总租车费用
+	Subdists *hexutil.Big   `json:"subdists"` //所有user总租车里程
+	Disti    *hexutil.Big   `json:"disti"`    //单个user的租车里程
+	Costi    *hexutil.Big   `json:"costi"`    //单个user的租车费用
+	Refundi  *hexutil.Big   `json:"refundi"`  //单个user需要认领的剩余租车押金
+	Addressu common.Address `json:"addru"`    //owner的账户地址
+	Cmtt     common.Hash    `json:"cmtt"`
 	//not used
 	H0     common.Hash      `json:"h0"`
 	Hi     common.Hash      `json:"hi"`
@@ -1541,72 +1542,7 @@ func (s *PublicTransactionPoolAPI) SendMintTransaction(ctx context.Context, args
 	return hash, err
 }
 
-//SendInitTransaction function
-func (s *PublicTransactionPoolAPI) SendInitTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
-
-	// Look up the wallet containing the requested signer
-	account := accounts.Account{Address: args.From}
-	wallet, err := s.b.AccountManager().Find(account)
-
-	if args.Nonce == nil {
-		// Hold the addresse's mutex around signing to prevent concurrent assignment of
-		// the same nonce to multiple accounts.
-		s.nonceLock.LockAddr(args.From)
-		defer s.nonceLock.UnlockAddr(args.From)
-	}
-	// Set some sanity defaults and terminate on failure
-	if err := args.setDefaults(ctx, s.b); err != nil {
-		return common.Hash{}, err
-	}
-	//sendTransaction 所需参数
-	// fees := big.NewInt(args.Fees.ToInt().Int64())
-	// subcosts := big.NewInt(args.Subcosts.ToInt().Int64())
-	// subdists := big.NewInt(args.Subdists.ToInt().Int64())
-	// cmtt := common.HexToHash(args.Cmtt.String())
-
-	fees := big.NewInt(100)
-	subcosts := big.NewInt(80)
-	subdists := big.NewInt(20)
-	cmtt := common.HexToHash("0x89d7665dfb0512bbae245cda0bf423cab0de6f3445070ccc17dee262cc5083e1")
-
-	//turn params to input of contract
-	func_name := "Init(uint256,uint256,uint256,bytes32)"
-	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-	fees_bytes := common.BigToHash(fees).Bytes()
-	subcosts_bytes := common.BigToHash(subcosts).Bytes()
-	subdists_bytes := common.BigToHash(subdists).Bytes()
-	cmtt_bytes := cmtt.Bytes()
-
-	var buffer bytes.Buffer
-	buffer.Write(func_keccak256)
-	buffer.Write(fees_bytes)
-	buffer.Write(subcosts_bytes)
-	buffer.Write(subdists_bytes)
-	buffer.Write(cmtt_bytes)
-
-	input := buffer.Bytes()
-	args.Input = (*hexutil.Bytes)(&input)
-
-	*args.Gas = hexutil.Uint64(200000)
-	tx := args.toTransaction()
-	tx.SetTxCode(types.PublicTx)
-	tx.SetValue(big.NewInt(0))
-	// tx.SetZKAddress(&args.From)
-
-	var chainID *big.Int
-	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {
-		chainID = config.ChainID
-	}
-	signed, err := wallet.SignTx(account, tx, chainID)
-	if err != nil {
-		return common.Hash{}, err
-	}
-
-	hash, err := submitTransaction(ctx, s.b, signed)
-	return hash, err
-}
-
-// SendConvertTransaction function ||  Cost function
+// SendConvertTransaction function ||  user Cost
 func (s *PublicTransactionPoolAPI) SendConvertTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
 
 	// Look up the wallet containing the requested signer
@@ -1643,22 +1579,22 @@ func (s *PublicTransactionPoolAPI) SendConvertTransaction(ctx context.Context, a
 	//生成cmts
 	SNs := zktx.NewRandomHash()
 	newRs := zktx.NewRandomHash()
-	CMTs := zktx.GenCMT(args.Value.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes())
+	CMTs := zktx.GenCMT(args.Fees.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes())
 
 	//生成cmt
 	newSNA := zktx.NewRandomHash()
 	newRandomA := zktx.NewRandomHash()
-	newValueA := valueold.Uint64() - args.Value.ToInt().Uint64()
+	newValueA := valueold.Uint64() - args.Fees.ToInt().Uint64()
 	newCMTA := zktx.GenCMT(newValueA, newSNA.Bytes(), newRandomA.Bytes())
 
 	//验证proof用的参数
 	tx.SetZKCMTOLD(CMTold)
 	tx.SetZKCMTS(CMTs)
 	tx.SetZKCMT(newCMTA)
-	tx.SetZKSNS(SNs)
+	tx.SetZKSNS(SNs)  //sns
 	tx.SetZKSN(snold) //SN_old
 
-	zkProof := zktx.GenConvertProof(CMTold, valueold.Uint64(), rold, args.Value.ToInt().Uint64(), SNs, newRs, snold, CMTs, newValueA, newSNA, newRandomA, newCMTA)
+	zkProof := zktx.GenConvertProof(CMTold, valueold.Uint64(), rold, args.Fees.ToInt().Uint64(), SNs, newRs, snold, CMTs, newValueA, newSNA, newRandomA, newCMTA)
 	if string(zkProof[0:10]) == "0000000000" {
 		return common.Hash{}, errors.New("can't generate proof")
 	}
@@ -1677,64 +1613,158 @@ func (s *PublicTransactionPoolAPI) SendConvertTransaction(ctx context.Context, a
 	return hash, err
 }
 
-// //SendCommitTransaction function
-// func (s *PublicTransactionPoolAPI) SendCommitTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+//SendCommitTransaction function || user commit
+func (s *PublicTransactionPoolAPI) SendCommitTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
 
-// 	if args.Nonce == nil {
-// 		// Hold the addresse's mutex around signing to prevent concurrent assignment of
-// 		// the same nonce to multiple accounts.
-// 		s.nonceLock.LockAddr(args.From)
-// 		defer s.nonceLock.UnlockAddr(args.From)
-// 	}
-// 	// Set some sanity defaults and terminate on failure
-// 	if err := args.setDefaults(ctx, s.b); err != nil {
-// 		return common.Hash{}, err
-// 	}
+	if args.Nonce == nil {
+		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+		// the same nonce to multiple accounts.
+		s.nonceLock.LockAddr(args.From)
+		defer s.nonceLock.UnlockAddr(args.From)
+	}
+	// Set some sanity defaults and terminate on failure
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
 
-// 	h0 := zktx.H0
-// 	cmtC := zktx.CmtC
-// 	N := big.NewInt(1000)
+	fees := big.NewInt(args.Fees.ToInt().Int64())
+	subcosts := big.NewInt(80)
+	subdists := big.NewInt(20)
 
-// 	//turn params to input of contract
-// 	func_name := "Commit(bytes32,bytes32,uint256)"
-// 	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-// 	h0_bytes := h0.Bytes()
-// 	cmtC_bytes := cmtC.Bytes()
-// 	N_bytes := common.BigToHash(N).Bytes()
+	//turn params to input of contract
+	func_name := "Init(uint256,uint256,uint256)"
+	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+	fees_bytes := common.BigToHash(fees).Bytes()
+	subcosts_bytes := common.BigToHash(subcosts).Bytes()
+	subdists_bytes := common.BigToHash(subdists).Bytes()
 
-// 	var buffer bytes.Buffer
-// 	buffer.Write(func_keccak256)
-// 	buffer.Write(h0_bytes)
-// 	buffer.Write(cmtC_bytes)
-// 	buffer.Write(N_bytes)
+	var buffer bytes.Buffer
+	buffer.Write(func_keccak256)
+	buffer.Write(fees_bytes)
+	buffer.Write(subcosts_bytes)
+	buffer.Write(subdists_bytes)
 
-// 	input := buffer.Bytes()
-// 	args.Input = (*hexutil.Bytes)(&input)
+	input := buffer.Bytes()
+	args.Input = (*hexutil.Bytes)(&input)
 
-// 	*args.Gas = hexutil.Uint64(200000)
-// 	tx := args.toTransaction()
-// 	tx.SetTxCode(types.CommitTx)
-// 	tx.SetValue(big.NewInt(0))
-// 	tx.SetZKAddress(&args.From) //?
+	*args.Gas = hexutil.Uint64(200000)
+	tx := args.toTransaction()
+	tx.SetTxCode(types.CommitTx)
+	tx.SetValue(big.NewInt(0))
+	tx.SetZKAddress(&args.From)
 
-// 	var cmtarray []common.Hash
-// 	for i := 0; i < 32; i++ {
-// 		if i == 9 {
-// 			cmtarray = append(cmtarray, zktx.CmtS)
-// 		} else {
-// 			cmt := common.HexToHash(zktx.Cmt_str[i])
-// 			cmtarray = append(cmtarray, cmt)
-// 		}
-// 	}
+	//生成cmts
+	SNs := zktx.NewRandomHash()
+	newRs := zktx.NewRandomHash()
+	CMTs := zktx.GenCMT(args.Fees.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes())
 
-// 	tx.SetCmtarr(cmtarray)
-// 	tx.SetRTcmt(zktx.RT)
-// 	tx.SetZKSNS(&zktx.Sn_s)
-// 	tx.SetZKCMT(&zktx.CmtC)
-// 	tx.SetZKProof(zktx.Commit_proof)
-// 	hash, err := submitTransaction(ctx, s.b, tx)
-// 	return hash, err
-// }
+	//生成cmt,混淆cmts
+	VALUES := big.NewInt(100)
+	SNS := zktx.NewRandomHash()
+	RS := zktx.NewRandomHash()
+	CMTS := zktx.GenCMT(VALUES.Uint64(), SNS.Bytes(), RS.Bytes())
+
+	var cmtarray []*common.Hash
+	for i := 0; i < 32; i++ {
+		if i == 9 {
+			cmts := common.HexToHash(CMTs.String())
+			cmtarray = append(cmtarray, &cmts)
+		} else {
+			cmt := common.HexToHash(CMTS.String())
+			cmtarray = append(cmtarray, &cmt)
+		}
+	}
+
+	var cmtarr []common.Hash
+	for i := 0; i < 32; i++ {
+		if i == 9 {
+			cmts := common.HexToHash(CMTs.String())
+			cmtarr = append(cmtarr, cmts)
+		} else {
+			cmt := common.HexToHash(CMTS.String())
+			cmtarr = append(cmtarr, cmt)
+		}
+	}
+
+	NewRT := zktx.GenRT(cmtarray)
+
+	tx.SetCmtarr(cmtarr)
+	tx.SetRTcmt(NewRT)
+	tx.SetZKSNS(SNs)
+
+	zkProof := zktx.GenCommitProof(args.Fees.ToInt().Uint64(), SNs, newRs, CMTs, NewRT, cmtarray)
+	if string(zkProof[0:10]) == "0000000000" {
+		return common.Hash{}, errors.New("can't generate proof")
+	}
+	tx.SetZKProof(zkProof)
+
+	hash, err := submitTransaction(ctx, s.b, tx)
+	return hash, err
+}
+
+//SendDeclareTransaction function || owner declare
+func (s *PublicTransactionPoolAPI) SendDeclareTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
+
+	if args.Nonce == nil {
+		// Hold the addresse's mutex around signing to prevent concurrent assignment of
+		// the same nonce to multiple accounts.
+		s.nonceLock.LockAddr(args.From)
+		defer s.nonceLock.UnlockAddr(args.From)
+	}
+
+	// Set some sanity defaults and terminate on failure
+	if err := args.setDefaults(ctx, s.b); err != nil {
+		return common.Hash{}, err
+	}
+
+	subcosts := big.NewInt(80)
+	cmtso := common.HexToHash("0x89d7665dfb0512bbae245cda0bf423cab0de6f3445070ccc17dee262cc5083e1")
+
+	//turn params to input of contract
+	func_name := "Claim(uint256,bytes32,address)"
+	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
+	subcosts_bytes := common.BigToHash(subcosts).Bytes()
+	cmtso_bytes := cmtso.Bytes()
+	addr_bytes := args.Addressu.Hash().Bytes()
+
+	var buffer bytes.Buffer
+	buffer.Write(func_keccak256)
+	buffer.Write(subcosts_bytes)
+	buffer.Write(cmtso_bytes)
+	buffer.Write(addr_bytes)
+
+	input := buffer.Bytes()
+	args.Input = (*hexutil.Bytes)(&input)
+
+	*args.Gas = hexutil.Uint64(200000)
+
+	tx := args.toTransaction()
+	tx.SetTxCode(types.DeclareTx)
+	tx.SetValue(big.NewInt(0))
+	tx.SetZKAddress(&args.From)
+
+	//生成cmts = sha(subcost | sns |  rs)
+	SNs := zktx.NewRandomHash()
+	newRs := zktx.NewRandomHash()
+	CMTs := zktx.GenCMT(args.Subcosts.ToInt().Uint64(), SNs.Bytes(), newRs.Bytes())
+
+	//生成cmtt = sha(subcost | r)
+	rC := zktx.NewRandomHash()
+	cmtT := zktx.GenCMT2(args.Subcosts.ToInt().Uint64(), rC.Bytes())
+
+	DS := zktx.GenCMT2(args.Dists.ToInt().Uint64(), SNs.Bytes())
+
+	zkProof := zktx.GenDeclareProof(DS, rC, cmtT, args.Subcosts.ToInt().Uint64(), args.Dists.ToInt().Uint64(), SNs, newRs, CMTs)
+	if string(zkProof[0:10]) == "0000000000" {
+		return common.Hash{}, errors.New("can't generate proof")
+	}
+
+	tx.SetZKProof(zkProof) //proof tbd
+	tx.SetZKCMTS(cmtT)     //cmtt
+	tx.SetZKCMT(DS)        //ds
+	hash, err := submitTransaction(ctx, s.b, tx)
+	return hash, err
+}
 
 //SendClaimTransaction function || user divide
 func (s *PublicTransactionPoolAPI) SendClaimTransaction(ctx context.Context, args SendTxArgs) (common.Hash, error) {
@@ -1753,19 +1783,20 @@ func (s *PublicTransactionPoolAPI) SendClaimTransaction(ctx context.Context, arg
 	disti := big.NewInt(args.Disti.ToInt().Int64())
 	costi := big.NewInt(80 * args.Disti.ToInt().Int64() / 20) //subdist ==  20
 	refundi := big.NewInt(100 - 80*args.Disti.ToInt().Int64()/20)
+	cmtsu := common.HexToHash("0x89d7665dfb0512bbae245cda0bf423cab0de6f3445070ccc17dee262cc5083e1")
 
 	//turn params to input of contract
-	func_name := "Divide(uint256,uint256,address)"
+	func_name := "Divide(uint256,uint256,bytes32)"
 	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
 	disti_bytes := common.BigToHash(disti).Bytes()
 	refund_bytes := common.BigToHash(refundi).Bytes()
-	addr_bytes := args.addressowner.Hash().Bytes()
+	cmtsu_bytes := cmtsu.Bytes()
 
 	var buffer bytes.Buffer
 	buffer.Write(func_keccak256)
 	buffer.Write(disti_bytes)
 	buffer.Write(refund_bytes)
-	buffer.Write(addr_bytes)
+	buffer.Write(cmtsu_bytes)
 
 	input := buffer.Bytes()
 	args.Input = (*hexutil.Bytes)(&input)
@@ -1815,35 +1846,17 @@ func (s *PublicTransactionPoolAPI) SendDepositsgTransaction(ctx context.Context,
 		s.nonceLock.LockAddr(args.From)
 		defer s.nonceLock.UnlockAddr(args.From)
 	}
+	args.To = zktx.NewRandomAddress()
 	// Set some sanity defaults and terminate on failure
 	if err := args.setDefaults(ctx, s.b); err != nil {
 		return common.Hash{}, err
 	}
-
-	subcost := big.NewInt(args.Value.ToInt().Int64()) //subcost ==  80
-	cmtso := common.HexToHash("0x89d7665dfb0512bbae245cda0bf423cab0de6f3445070ccc17dee262cc5083e1")
-
-	//turn params to input of contract
-	func_name := "Collect(uint256,bytes32)"
-	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-	cost_bytes := common.BigToHash(subcost).Bytes()
-	cmtso_bytes := cmtso.Bytes()
-
-	var buffer bytes.Buffer
-	buffer.Write(func_keccak256)
-	buffer.Write(cost_bytes)
-	buffer.Write(cmtso_bytes)
-
-	input := buffer.Bytes()
-	args.Input = (*hexutil.Bytes)(&input)
-	*args.Gas = hexutil.Uint64(200000)
 
 	// Assemble the transaction and sign with the wallet
 	tx := args.toTransaction()
 	tx.SetTxCode(types.DepositsgTx)
 	tx.SetPrice(big.NewInt(0))
 	tx.SetValue(big.NewInt(0))
-	tx.SetZKAddress(&args.From)
 
 	//生成cmtold
 	valueold := big.NewInt(1000)
@@ -1935,34 +1948,16 @@ func (s *PublicTransactionPoolAPI) SendRefundTransaction(ctx context.Context, ar
 		s.nonceLock.LockAddr(args.From)
 		defer s.nonceLock.UnlockAddr(args.From)
 	}
+	args.To = zktx.NewRandomAddress()
 	// Set some sanity defaults and terminate on failure
 	if err := args.setDefaults(ctx, s.b); err != nil {
 		return common.Hash{}, err
 	}
 
-	refundi := big.NewInt(args.Value.ToInt().Int64()) //refundi
-	cmtsu := common.HexToHash("0x89d7665dfb0512bbae245cda0bf423cab0de6f3445070ccc17dee262cc5083e1")
-
-	//turn params to input of contract
-	func_name := "Refund(uint256,bytes32)"
-	func_keccak256 := crypto.Keccak256([]byte(func_name))[:4]
-	refundi_bytes := common.BigToHash(refundi).Bytes()
-	cmtsu_bytes := cmtsu.Bytes()
-
-	var buffer bytes.Buffer
-	buffer.Write(func_keccak256)
-	buffer.Write(refundi_bytes)
-	buffer.Write(cmtsu_bytes)
-
-	input := buffer.Bytes()
-	args.Input = (*hexutil.Bytes)(&input)
-
-	*args.Gas = hexutil.Uint64(200000)
 	tx := args.toTransaction()
 	tx.SetTxCode(types.RefundTx)
 	tx.SetPrice(big.NewInt(0))
 	tx.SetValue(big.NewInt(0))
-	// tx.SetZKAddress(&args.From)
 
 	//生成cmtold
 	valueold := big.NewInt(1000)
@@ -2025,7 +2020,6 @@ func (s *PublicTransactionPoolAPI) SendRefundTransaction(ctx context.Context, ar
 	tx.SetRTcmt(NewRT)
 	tx.SetCmtarr(cmtarr)
 	tx.SetZKProof(zkProof)
-	tx.SetZKAddress(&args.From)
 
 	var chainID *big.Int
 	if config := s.b.ChainConfig(); config.IsEIP155(s.b.CurrentBlock().Number()) {

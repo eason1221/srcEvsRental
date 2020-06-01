@@ -71,7 +71,7 @@ func GenCMT2(value uint64, r []byte) *common.Hash {
 
 //GenDeclareProof function
 func GenDeclareProof(SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *common.Hash, CMTT *common.Hash,
-	Subcost uint64, Dist uint64) []byte {
+	Subcost uint64, Dist uint64, DS *common.Hash) []byte {
 
 	snS := C.CString(common.ToHex(SNS.Bytes()[:]))
 	rS := C.CString(common.ToHex(RS.Bytes()[:]))
@@ -81,9 +81,10 @@ func GenDeclareProof(SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *c
 	cmtt := C.CString(common.ToHex(CMTT[:]))
 
 	dist := C.ulong(Dist)
+	ds := C.CString(common.ToHex(DS[:]))
 	subcost := C.ulong(Subcost)
 
-	cproof := C.genDeclareproof(snS, rS, cmtS, rR, cmtt, subcost, dist)
+	cproof := C.genDeclareproof(snS, rS, cmtS, rR, cmtt, subcost, dist, ds)
 	var goproof string
 	goproof = C.GoString(cproof)
 	return []byte(goproof)
@@ -92,12 +93,13 @@ func GenDeclareProof(SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *c
 var InvalidDeclareProof = errors.New("Verifying declare proof failed!!!")
 
 //VerifyDeclareProof function
-func VerifyDeclareProof(CMTT *common.Hash, proof []byte) error {
+func VerifyDeclareProof(DS *common.Hash, CMTT *common.Hash, proof []byte) error {
 
 	cproof := C.CString(string(proof))
 	cmtt := C.CString(common.ToHex(CMTT[:]))
+	ds := C.CString(common.ToHex(DS[:]))
 
-	tf := C.verifyDeclareproof(cproof, cmtt)
+	tf := C.verifyDeclareproof(cproof, cmtt, ds)
 	if tf == false {
 		return InvalidDeclareProof
 	}
@@ -114,9 +116,10 @@ func main() {
 	dist := uint64(16)
 	cmtt := GenCMT2(subcost, r.Bytes())
 	cmtS := GenCMT(subcost, sn_s.Bytes(), r_s.Bytes())
+	ds := GenCMT2(dist, sn_s.Bytes())
 
-	proof := GenDeclareProof(sn_s, r_s, cmtS, r, cmtt, subcost, dist)
+	proof := GenDeclareProof(sn_s, r_s, cmtS, r, cmtt, subcost, dist, ds)
 
-	VerifyDeclareProof(cmtt, proof)
+	VerifyDeclareProof(ds, cmtt, proof)
 
 }

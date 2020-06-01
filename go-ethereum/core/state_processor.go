@@ -103,6 +103,7 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	vmenv := vm.NewEVM(context, statedb, config, cfg)
 
 	if tx.Code() == types.MintTx {
+		log.Info("============================state_processor.go verify============================")
 		err = zktx.VerifyMintProof(tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKValue(), tx.ZKProof()) //TBD
 		if err != nil {
 			return nil, 0, err
@@ -110,13 +111,31 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	}
 
 	if tx.Code() == types.ConvertTx {
-		err = zktx.VerifyConvertProof(tx.ZKSNS(), tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), tx.ZKCMTOLD(), tx.ZKCMT()) //TBD
+		log.Info("============================state_processor.go verify============================")
+		err = zktx.VerifyConvertProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), tx.ZKCMTOLD(), tx.ZKCMT()) //TBD
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	if tx.Code() == types.CommitTx {
+		log.Info("============================state_processor.go verify============================")
+		err = zktx.VerifyCommitProof(tx.ZKSNS(), tx.RTcmt(), tx.ZKProof()) //TBD
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	if tx.Code() == types.DeclareTx {
+		log.Info("============================state_processor.go verify============================")
+		err = zktx.VerifyDeclareProof(tx.ZKCMT(), tx.ZKCMTS(), tx.ZKProof()) //TBD
 		if err != nil {
 			return nil, 0, err
 		}
 	}
 
 	if tx.Code() == types.ClaimTx {
+		log.Info("============================state_processor.go verify============================")
 		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKCMT(), uint64(20), uint64(8), uint64(100), tx.ZKProof()) //TBD
 		if err != nil {
 			return nil, 0, err
@@ -124,6 +143,7 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	}
 
 	if tx.Code() == types.DepositsgTx {
+		log.Info("============================state_processor.go verify============================")
 		err = zktx.VerifyDepositsgProof(tx.ZKCMTT(), tx.ZKSNS(), tx.RTcmt(), tx.ZKCMTOLD(), tx.ZKSN(), tx.ZKCMT(), tx.ZKProof())
 		if err != nil {
 			return nil, 0, err

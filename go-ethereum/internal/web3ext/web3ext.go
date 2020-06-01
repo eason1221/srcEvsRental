@@ -449,6 +449,11 @@ web3._extend({
 			params: 1,
 		}),
 		new web3._extend.Method({
+			name: 'sendDeclareTransaction',
+			call: 'eth_sendDeclareTransaction',
+			params: 1,
+		}),
+		new web3._extend.Method({
 			name: 'sendClaimTransaction',
 			call: 'eth_sendClaimTransaction',
 			params: 1,
@@ -461,11 +466,6 @@ web3._extend({
 		new web3._extend.Method({
 			name: 'sendDepositsgTransaction',
 			call: 'eth_sendDepositsgTransaction',
-			params: 1,
-		}),
-		new web3._extend.Method({
-			name: 'sendInitTransaction',
-			call: 'eth_sendInitTransaction',
 			params: 1,
 		}),
 		new web3._extend.Method({
