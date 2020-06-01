@@ -200,9 +200,11 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_claim_proof(r1cs_ppzksnark_proving_
                                                         NoteC &notecmtt,
                                                         uint256 cmtt,                              
                                                         uint64_t subdist,
-                                                        uint64_t dist,
+                                                        // uint64_t dist,
                                                         uint64_t cost,
-                                                        uint64_t fees
+                                                        uint64_t fees,
+                                                        NoteC &noteds,
+                                                        uint256 ds
                                                         )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
@@ -210,7 +212,7 @@ r1cs_ppzksnark_proof<ppzksnark_ppT> generate_claim_proof(r1cs_ppzksnark_proving_
     protoboard<FieldT> pb;         // 定义原始模型，该模型包含constraint_system成员变量
     claim_gadget<FieldT> g(pb);    // 构造新模型
     g.generate_r1cs_constraints(); // 生成约束
-    g.generate_r1cs_witness(notes, notecmtt, cmtS, cmtt, dist, subdist, fees, cost); // 为新模型的参数生成证明
+    g.generate_r1cs_witness(notes, notecmtt, cmtS, cmtt, subdist, fees, cost, noteds, ds); // 为新模型的参数生成证明
 
     if (!pb.is_satisfied())
     { // 三元组R1CS是否满足  < A , X > * < B , X > = < C , X >
@@ -229,9 +231,10 @@ bool verify_claim_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verificat
                   r1cs_ppzksnark_proof<ppzksnark_ppT> proof,
                   uint256 &cmtS,
                   uint256 &cmtt,
-                  uint64_t subdist,
-                  uint64_t dist,
-                  uint64_t fees
+                  uint256 &ds
+                //   uint64_t subdist,
+                //   uint64_t dist,
+                //   uint64_t fees
                   )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
@@ -239,9 +242,10 @@ bool verify_claim_proof(r1cs_ppzksnark_verification_key<ppzksnark_ppT> verificat
     const r1cs_primary_input<FieldT> input = claim_gadget<FieldT>::witness_map(
         cmtS,
         cmtt,
-        subdist,
-        dist,
-        fees
+        ds
+        // subdist,
+        // dist,
+        // fees
         );
 
     // 调用libsnark库中验证proof的函数
@@ -289,7 +293,8 @@ char *genClaimproof(
                         uint64_t dist,
                         uint64_t subdist,
                         uint64_t fees,
-                        uint64_t refundi
+                        uint64_t refundi,
+                        char *ds_string
                     )
 {
     //从字符串转uint256
@@ -298,10 +303,12 @@ char *genClaimproof(
     uint256 cmtS = uint256S(cmt_s_string); 
     uint256 r = uint256S(r_string);
     uint256 cmtt = uint256S(cmtt_string);
+    uint256 ds = uint256S(ds_string);
 
     //生成sha256输入
     Note notes = Note(refundi, sn_s, r_s); //cmts
     NoteC notecmtt = NoteC(subcost,r);     //cmtt
+    NoteC noteds = NoteC(dist,sn_s);     //ds
 
     //初始化参数
     alt_bn128_pp::init_public_params();
@@ -320,9 +327,11 @@ char *genClaimproof(
                                                 notecmtt,
                                                 cmtt,
                                                 subdist,
-                                                dist,
+                                                // dist,
                                                 cost,
-                                                fees
+                                                fees,
+                                                noteds,
+                                                ds
                                                 );
 
     //proof转字符串
@@ -339,13 +348,15 @@ bool verifyClaimproof(
                         char *data, 
                         char *cmtS_string, 
                         char *cmtt_string, 
-                        uint64_t subdist,
-                        uint64_t dist,
-                        uint64_t fees
+                        // uint64_t subdist,
+                        // uint64_t dist,
+                        // uint64_t fees
+                        char *ds_string
                     )
 {
     uint256 cmtS = uint256S(cmtS_string);
     uint256 cmtt = uint256S(cmtt_string);
+    uint256 ds = uint256S(ds_string);
 
     alt_bn128_pp::init_public_params();
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
@@ -458,7 +469,7 @@ bool verifyClaimproof(
 
     cout << "Trying to verify divide(user) proof..." << endl;
 
-    bool result = verify_claim_proof(keypair.vk, proof, cmtS, cmtt, subdist, dist, fees);
+    bool result = verify_claim_proof(keypair.vk, proof, cmtS, cmtt, ds);
 
     if (!result)
     {

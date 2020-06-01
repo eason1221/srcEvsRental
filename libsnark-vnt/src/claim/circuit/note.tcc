@@ -135,7 +135,7 @@ public:
         r->generate_r1cs_constraints(); // 随机数的约束
     }
 
-    void generate_r1cs_witness(const Note& notes, const NoteC& notecmtt, uint64_t dist_data, uint64_t subdist_data,uint64_t fees_data,uint64_t cost_data) { // 为变量生成约束        
+    void generate_r1cs_witness(const Note& notes, const NoteC& notecmtt, const NoteC& noteds, uint64_t subdist_data,uint64_t fees_data,uint64_t cost_data) { // 为变量生成约束        
 
         value_s.fill_with_bits(this->pb, uint64_to_bool_vector(cost_data));//cost_i
         this->pb.lc_val(value_s_packed) = value_s.get_field_element_from_bits_by_order(this->pb);
@@ -154,7 +154,7 @@ public:
         
         r->bits.fill_with_bits(this->pb, uint256_to_bool_vector(notecmtt.r));
 
-        dist.fill_with_bits(this->pb, uint64_to_bool_vector(dist_data));//dist_i
+        dist.fill_with_bits(this->pb, uint64_to_bool_vector(noteds.value));//dist_i
         this->pb.lc_val(dist_packed) = dist.get_field_element_from_bits_by_order(this->pb);
 
         subdist.fill_with_bits(this->pb, uint64_to_bool_vector(subdist_data));//Σdist_i

@@ -1,8 +1,8 @@
 package zktx
 
 /*
-#cgo LDFLAGS: -L/usr/local/lib -lzk_deposit_sg -lzk_convert -lzk_commit -lzk_declare -lzk_mint -lzk_redeem -lff  -lsnark -lstdc++  -lgmp -lgmpxx
-#cgo LDFLAGS: -L/usr/local/lib -lzk_refund -lzk_claim -lff  -lsnark -lstdc++  -lgmp -lgmpxx
+#cgo LDFLAGS: -L/usr/local/lib -lzk_deposit_sg -lzk_convert -lzk_commit -lzk_claim -lzk_declare -lzk_mint -lzk_redeem -lff  -lsnark -lstdc++  -lgmp -lgmpxx
+#cgo LDFLAGS: -L/usr/local/lib -lzk_refund -lff  -lsnark -lstdc++  -lgmp -lgmpxx
 
 
 #include "mintcgo.hpp"
@@ -504,7 +504,7 @@ func VerifyDeclareProof(ds *common.Hash, cmtt *common.Hash, proof []byte) error 
 	return nil
 }
 
-func GenClaimProof(cost uint64, subcost uint64, dist uint64, subdist uint64, fees uint64, refundi uint64, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RC *common.Hash, CMTT *common.Hash) []byte {
+func GenClaimProof(cost uint64, subcost uint64, dist uint64, subdist uint64, fees uint64, refundi uint64, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RC *common.Hash, CMTT *common.Hash, DS *common.Hash) []byte {
 
 	snS := C.CString(common.ToHex(SNS.Bytes()[:]))
 	defer C.free(unsafe.Pointer(snS))
@@ -516,6 +516,7 @@ func GenClaimProof(cost uint64, subcost uint64, dist uint64, subdist uint64, fee
 	defer C.free(unsafe.Pointer(rC))
 	cmtT := C.CString(common.ToHex(CMTT[:]))
 	defer C.free(unsafe.Pointer(cmtT))
+	ds := C.CString(common.ToHex(DS[:]))
 	costC := C.ulong(cost)
 	subcostC := C.ulong(subcost)
 	distC := C.ulong(dist)
@@ -524,7 +525,7 @@ func GenClaimProof(cost uint64, subcost uint64, dist uint64, subdist uint64, fee
 	refundiC := C.ulong(refundi)
 
 	t1 := time.Now()
-	cproof := C.genClaimproof(snS, rS, cmtS, rC, cmtT, costC, subcostC, distC, subdistC, feesC, refundiC)
+	cproof := C.genClaimproof(snS, rS, cmtS, rC, cmtT, costC, subcostC, distC, subdistC, feesC, refundiC, ds)
 	t2 := time.Now()
 	genClaimRefundproof_time := t2.Sub(t1)
 	log.Info("---------------------------------genDivide(user)proof_time---------------------------------")
@@ -536,7 +537,7 @@ func GenClaimProof(cost uint64, subcost uint64, dist uint64, subdist uint64, fee
 
 var InvalidClaimProof = errors.New("Verifying Divide(user) proof failed!!!")
 
-func VerifyClaimProof(cmts *common.Hash, cmtt *common.Hash, subdist uint64, dist uint64, fees uint64, proof []byte) error {
+func VerifyClaimProof(cmts *common.Hash, cmtt *common.Hash, DS *common.Hash, proof []byte) error {
 
 	cproof := C.CString(string(proof))
 	defer C.free(unsafe.Pointer(cproof))
@@ -544,11 +545,13 @@ func VerifyClaimProof(cmts *common.Hash, cmtt *common.Hash, subdist uint64, dist
 	defer C.free(unsafe.Pointer(cmtS))
 	cmtT := C.CString(common.ToHex(cmtt[:]))
 	defer C.free(unsafe.Pointer(cmtT))
-	subdistC := C.ulong(subdist)
-	distC := C.ulong(dist)
-	feesC := C.ulong(fees)
+	ds := C.CString(common.ToHex(DS[:]))
+
+	// subdistC := C.ulong(subdist)
+	// distC := C.ulong(dist) uint64, dist
+	// feesC := C.ulong(fees)
 	t1 := time.Now()
-	tf := C.verifyClaimproof(cproof, cmtS, cmtT, subdistC, distC, feesC)
+	tf := C.verifyClaimproof(cproof, cmtS, cmtT, ds)
 	t2 := time.Now()
 	verifyClaimRefundproof_time := t2.Sub(t1)
 	log.Info("---------------------------------verifyDivide(user)proof_time---------------------------------")

@@ -9,8 +9,8 @@
  ************************************************************************
  * sha256(data+padding), 512bits < data.size() < 1024-64-1bits
  * **********************************************************************
- * publicData: cmtS, cmtt , dist, subdist ,fees 
- * privateData: value_s(cost), sn_s, r_s ,subcost, r ,refund_i
+ * publicData: cmtS, cmtt , ds
+ * privateData: value_s(cost), sn_s, r_s ,subcost, r ,refund_i,dist, subdist ,fees 
  * **********************************************************************/
 template<typename FieldT>
 class claim_gadget : public gadget<FieldT> {
@@ -35,6 +35,10 @@ public:
     //cmtt
     std::shared_ptr<digest_variable<FieldT>> cmtt; // cm
     std::shared_ptr<sha256_one_block_gadget<FieldT>> commit_to_input_cmt_t; // note_commitment
+
+    //cmtt
+    std::shared_ptr<digest_variable<FieldT>> ds; // cm
+    std::shared_ptr<sha256_one_block_gadget<FieldT>> commit_to_input_ds; // note_commitment
     
     //parameter
     pb_variable_array<FieldT> subcost;
@@ -62,9 +66,10 @@ public:
             //!验证proof时需要输入的参数，即公开参数
             alloc_uint256(zk_unpacked_inputs, cmtS);
             alloc_uint256(zk_unpacked_inputs, cmtt);
-            alloc_uint64(zk_unpacked_inputs, this->subdist);
-            alloc_uint64(zk_unpacked_inputs, this->dist);
-            alloc_uint64(zk_unpacked_inputs, this->fees);
+            alloc_uint256(zk_unpacked_inputs, ds);
+            // alloc_uint64(zk_unpacked_inputs, this->subdist);
+            // alloc_uint64(zk_unpacked_inputs, this->dist);
+            // alloc_uint64(zk_unpacked_inputs, this->fees);
             
 
             assert(zk_unpacked_inputs.size() == verifying_input_bit_size()); // 判定输入长度
@@ -81,17 +86,21 @@ public:
         }
 
         ZERO.allocate(this->pb, FMT(this->annotation_prefix, "zero"));
-        //!不需要验证proof的其他参数 需要重新reset--即隐私参数
+        //!不需要验证proof的其他参数--即隐私参数,需要重新reset
         value_s.allocate(pb, 64);
         sn_s.reset(new digest_variable<FieldT>(pb, 256, "serial number"));
         r_s.reset(new digest_variable<FieldT>(pb, 256, "random number"));
         subcost.allocate(pb, 64);
         r.reset(new digest_variable<FieldT>(pb, 256, "random number"));
         refundi.allocate(pb, 64);
+        //
+        subdist.allocate(pb, 64);
+        dist.allocate(pb, 64);
+        fees.allocate(pb, 64);
        
         note.reset(new note_gadget_with_packing<FieldT>(
             pb,
-            value_s, 
+            value_s, //cost_i
             sn_s,
             r_s,
             subcost,
@@ -118,6 +127,14 @@ public:
             r->bits,     // 256bits random number
             cmtt
         ));
+        //
+        commit_to_input_ds.reset(new sha256_one_block_gadget<FieldT>( 
+            pb,
+            ZERO,
+            dist,       // 64bits value
+            sn_s->bits, // 256bits random number
+            ds
+        ));
     }
 
     // 约束函数，为commitment_with_add_and_less_gadget的变量生成约束
@@ -133,9 +150,11 @@ public:
         cmtS->generate_r1cs_constraints();
         commit_to_input_cmt_s->generate_r1cs_constraints();
 
-        //
         cmtt->generate_r1cs_constraints();
         commit_to_input_cmt_t->generate_r1cs_constraints();
+        //
+        ds->generate_r1cs_constraints();
+        commit_to_input_ds->generate_r1cs_constraints();
     }
 
     // 证据函数，为commitment_with_add_and_less_gadget的变量生成证据
@@ -144,14 +163,18 @@ public:
         const NoteC& note_cmtt,
         uint256 cmtS_data,
         uint256 cmtt_data,
-        uint64_t dist_data,
+        // uint64_t dist_data,
         uint64_t subdist_data,
         uint64_t fees_data,
-        uint64_t cost_data
+        uint64_t cost_data,
+        //
+        const NoteC& note_ds,
+        uint256 ds_data
+
 
     ) {
 
-        note->generate_r1cs_witness(note_s, note_cmtt, dist_data, subdist_data, fees_data, cost_data);
+        note->generate_r1cs_witness(note_s, note_cmtt, note_ds, subdist_data, fees_data, cost_data);
 
         // Witness `zero`
         this->pb.val(ZERO) = FieldT::zero();
@@ -159,6 +182,7 @@ public:
         // Witness the commitment of the input note
         commit_to_input_cmt_s->generate_r1cs_witness();
         commit_to_input_cmt_t->generate_r1cs_witness();
+        commit_to_input_ds->generate_r1cs_witness();
         // [SANITY CHECK] Ensure the commitment is
         // valid.
         cmtS->bits.fill_with_bits(
@@ -169,6 +193,10 @@ public:
             this->pb,
             uint256_to_bool_vector(cmtt_data)
         );
+        ds->bits.fill_with_bits(
+            this->pb,
+            uint256_to_bool_vector(ds_data)
+        );
         // This happens last, because only by now are all the verifier inputs resolved.
         unpacker->generate_r1cs_witness_from_bits();
     }
@@ -177,9 +205,10 @@ public:
     static r1cs_primary_input<FieldT> witness_map(
         const uint256& cmtS,
         const uint256& cmtt,
-        uint64_t subdist,
-        uint64_t dist,
-        uint64_t fees
+        const uint256& ds
+        // uint64_t subdist,
+        // uint64_t dist,
+        // uint64_t fees
 
 
     ) {
@@ -187,9 +216,10 @@ public:
         
         insert_uint256(verify_inputs, cmtS);
         insert_uint256(verify_inputs, cmtt);
-        insert_uint64(verify_inputs, subdist);
-        insert_uint64(verify_inputs, dist);
-        insert_uint64(verify_inputs, fees);
+        insert_uint256(verify_inputs, ds);
+        // insert_uint64(verify_inputs, subdist);
+        // insert_uint64(verify_inputs, dist);
+        // insert_uint64(verify_inputs, fees);
 
         assert(verify_inputs.size() == verifying_input_bit_size());
         auto verify_field_elements = pack_bit_vector_into_field_element_vector<FieldT>(verify_inputs);
@@ -203,9 +233,10 @@ public:
 
         acc += 256; // cmtS
         acc += 256; // cmtt
-        acc += 64;  // subdist
-        acc += 64;  // dist
-        acc += 64;  // fees
+        acc += 256; // ds
+        // acc += 64;  // subdist
+        // acc += 64;  // dist
+        // acc += 64;  // fees
         return acc;
     }
 

@@ -1816,15 +1816,19 @@ func (s *PublicTransactionPoolAPI) SendClaimTransaction(ctx context.Context, arg
 	rC := zktx.NewRandomHash()
 	cmtT := zktx.GenCMT2(uint64(80), rC.Bytes())
 
-	zkProof := zktx.GenClaimProof(costi.Uint64(), uint64(80), disti.Uint64(), uint64(20), uint64(100), refundi.Uint64(), SNs, newRs, CMTs, rC, cmtT)
+	// 生成cmtt = sha(dist | sns)
+	ds := zktx.GenCMT2(disti.Uint64(), SNs.Bytes())
+
+	zkProof := zktx.GenClaimProof(costi.Uint64(), uint64(80), disti.Uint64(), uint64(20), uint64(100), refundi.Uint64(), SNs, newRs, CMTs, rC, cmtT, ds)
 	if string(zkProof[0:10]) == "0000000000" {
 		return common.Hash{}, errors.New("can't generate proof")
 	}
 
 	tx.SetZKProof(zkProof) //proof tbd
 	tx.SetZKValue(refundi.Uint64())
-	tx.SetZKCMTS(CMTs) //cmtc
+	tx.SetZKCMTS(CMTs) //cmts
 	tx.SetZKCMT(cmtT)  //cmtt
+	tx.SetZKCMTT(ds)   //ds
 	hash, err := submitTransaction(ctx, s.b, tx)
 	return hash, err
 }

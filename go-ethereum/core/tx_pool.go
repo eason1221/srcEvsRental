@@ -767,7 +767,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	if txCode == types.ClaimTx {
 		log.Info("============================tx_pool.go verify============================")
-		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKCMT(), uint64(20), uint64(8), uint64(100), tx.ZKProof()) //TBD
+		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKCMT(), tx.ZKCMTT(), tx.ZKProof()) //TBD
 		if err != nil {
 			return err
 		}

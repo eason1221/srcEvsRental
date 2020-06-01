@@ -12,7 +12,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"unsafe"
 
@@ -71,7 +70,7 @@ func GenCMT2(value uint64, r []byte) *common.Hash {
 }
 
 //GenClaimProof function
-func GenClaimProof(SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *common.Hash, CMTT *common.Hash,
+func GenClaimProof(DS *common.Hash, SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *common.Hash, CMTT *common.Hash,
 	Subcost uint64, Cost uint64, Subdist uint64, Dist uint64, FEES uint64, REFUNDI uint64) []byte {
 
 	snS := C.CString(common.ToHex(SNS.Bytes()[:]))
@@ -81,6 +80,8 @@ func GenClaimProof(SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *com
 	rR := C.CString(common.ToHex(RR.Bytes()[:]))
 	cmtt := C.CString(common.ToHex(CMTT[:]))
 
+	ds := C.CString(common.ToHex(DS[:]))
+
 	subdist := C.ulong(Subdist)
 	dist := C.ulong(Dist)
 	subcost := C.ulong(Subcost)
@@ -89,7 +90,7 @@ func GenClaimProof(SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *com
 	fees := C.ulong(FEES)
 	refundi := C.ulong(REFUNDI)
 
-	cproof := C.genClaimproof(snS, rS, cmtS, rR, cmtt, cost, subcost, dist, subdist, fees, refundi)
+	cproof := C.genClaimproof(snS, rS, cmtS, rR, cmtt, cost, subcost, dist, subdist, fees, refundi, ds)
 	var goproof string
 	goproof = C.GoString(cproof)
 	return []byte(goproof)
@@ -98,18 +99,18 @@ func GenClaimProof(SNS *common.Hash, RS *common.Hash, CMTS *common.Hash, RR *com
 var InvalidClaimProof = errors.New("Verifying claim proof failed!!!")
 
 //VerifyClaimProof function
-func VerifyClaimProof(cmts *common.Hash, CMTT *common.Hash, proof []byte,
-	Subdist uint64, Dist uint64, FEES uint64) error {
+func VerifyClaimProof(DS *common.Hash, cmts *common.Hash, CMTT *common.Hash, proof []byte) error {
 	cproof := C.CString(string(proof))
 	cmtS := C.CString(common.ToHex(cmts[:]))
 
 	cmtt := C.CString(common.ToHex(CMTT[:]))
+	ds := C.CString(common.ToHex(DS[:]))
 
-	subdist := C.ulong(Subdist)
-	dist := C.ulong(Dist)
-	fees := C.ulong(FEES)
+	// subdist := C.ulong(Subdist)
+	// dist := C.ulong(Dist)
+	// fees := C.ulong(FEES)
 
-	tf := C.verifyClaimproof(cproof, cmtS, cmtt, subdist, dist, fees)
+	tf := C.verifyClaimproof(cproof, cmtS, cmtt, ds)
 	if tf == false {
 		return InvalidClaimProof
 	}
@@ -134,9 +135,11 @@ func main() {
 	refundi := uint64(20)
 	cmtS := GenCMT(refundi, sn_s.Bytes(), r_s.Bytes())
 
-	proof := GenClaimProof(sn_s, r_s, cmtS, r, cmtt, subcost, cost, subdist, dist, fees, refundi)
-	fmt.Println("divide(user) proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
+	ds := GenCMT2(dist, sn_s.Bytes())
 
-	VerifyClaimProof(cmtS, cmtt, proof, subdist, dist, fees)
+	proof := GenClaimProof(ds, sn_s, r_s, cmtS, r, cmtt, subcost, cost, subdist, dist, fees, refundi)
+	// fmt.Println("divide(user) proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
+
+	VerifyClaimProof(ds, cmtS, cmtt, proof)
 
 }

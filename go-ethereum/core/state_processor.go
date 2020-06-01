@@ -136,7 +136,7 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 
 	if tx.Code() == types.ClaimTx {
 		log.Info("============================state_processor.go verify============================")
-		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKCMT(), uint64(20), uint64(8), uint64(100), tx.ZKProof()) //TBD
+		err = zktx.VerifyClaimProof(tx.ZKCMTS(), tx.ZKCMT(), tx.ZKCMTT(), tx.ZKProof()) //TBD
 		if err != nil {
 			return nil, 0, err
 		}

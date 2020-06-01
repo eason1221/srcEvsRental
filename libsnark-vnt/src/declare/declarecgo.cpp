@@ -306,7 +306,7 @@ char *genDeclareproof(
     Note notes = Note(subcost, sn_s, r_s); //cmts
     NoteC notecmtt = NoteC(subcost,r);     //cmtt
     //
-    NoteC noteds = NoteC(dist,sn_s);
+    NoteC noteds = NoteC(dist,sn_s); //ds
 
     //初始化参数
     alt_bn128_pp::init_public_params();
