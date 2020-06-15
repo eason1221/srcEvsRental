@@ -13,6 +13,7 @@
 #include "Note.h"
 #include "uint256.h"
 #include "claimcgo.hpp"
+#include <time.h>
 
 using namespace libsnark;
 using namespace libff;
@@ -316,7 +317,13 @@ char *genClaimproof(
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
     cout << "Trying to read divide(user) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
+    time_t start, end; 
+    double costdivide;  
+    time(&start);
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/claimpk.txt");
+    time(&end);
+    costdivide = difftime(end,start); 
+    cout<<"read divide proving key-time="<<costdivide<<endl;
     // 生成proof
     cout << "Trying to generate divide(user) proof..." << endl;
 

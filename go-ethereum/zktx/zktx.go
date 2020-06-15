@@ -1,9 +1,7 @@
 package zktx
 
 /*
-#cgo LDFLAGS: -L/usr/local/lib -lzk_deposit_sg -lzk_convert -lzk_commit -lzk_claim -lzk_declare -lzk_mint -lzk_redeem -lff  -lsnark -lstdc++  -lgmp -lgmpxx
-#cgo LDFLAGS: -L/usr/local/lib -lzk_refund -lff  -lsnark -lstdc++  -lgmp -lgmpxx
-
+#cgo LDFLAGS: -L/usr/local/lib -lzk_deposit_sg -lzk_refund -lzk_claim -lzk_declare -lzk_convert -lzk_commit -lzk_mint -lzk_redeem -lff  -lsnark -lstdc++  -lgmp -lgmpxx
 
 #include "mintcgo.hpp"
 #include "redeemcgo.hpp"

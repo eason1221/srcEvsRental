@@ -13,6 +13,7 @@
 #include "Note.h"
 #include "uint256.h"
 #include "declarecgo.hpp"
+#include <time.h>
 
 using namespace libsnark;
 using namespace libff;
@@ -314,7 +315,13 @@ char *genDeclareproof(
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
     cout << "Trying to read declare(owner) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
+    time_t start, end; 
+    double cost;  
+    time(&start);
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/declarepk.txt");
+    time(&end);
+    cost = difftime(end,start); 
+    cout<<"read declare proving key-time="<<cost<<endl;
     // 生成proof
     cout << "Trying to generate declare(owner) proof..." << endl;
 

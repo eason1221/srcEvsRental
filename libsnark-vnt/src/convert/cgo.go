@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -114,9 +115,19 @@ func main() {
 	cmtA := GenCMT(value, sn.Bytes(), r.Bytes())
 	cmtS := GenCMT(values, sn_s.Bytes(), r_s.Bytes())
 
+	t1 := time.Now()
 	proof := GenConvertProof(cmtA_old, value_old, r_old, values, sn_s, r_s, sn_old, cmtS, value, sn, r, cmtA)
-	fmt.Println("cost(user) proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
+	t2 := time.Now()
+	genConvertproof_time := t2.Sub(t1)
+	fmt.Println("---------------------------------genCost(user)proof_time---------------------------------")
+	fmt.Println("genCost(user)proof_time = ", genConvertproof_time)
+	// fmt.Println("cost(user) proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
 
+	t3 := time.Now()
 	VerifyConvertProof(sn_old, cmtS, proof, cmtA_old, cmtA)
+	t4 := time.Now()
+	verConvertproof_time := t4.Sub(t3)
+	fmt.Println("---------------------------------verCost(user)proof_time---------------------------------")
+	fmt.Println("verCost(user)proof_time = ", verConvertproof_time)
 
 }

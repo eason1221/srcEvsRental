@@ -16,6 +16,7 @@
 #include "uint256.h"
 #include "refundcgo.hpp"
 #include "IncrementalMerkleTree.hpp"
+#include <time.h>
 
 using namespace libsnark;
 using namespace libff;
@@ -371,7 +372,13 @@ char *genRefundproof(uint64_t value,
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
     cout << "Trying to read refund(user) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
+    time_t start, end; 
+    double costrefund;  
+    time(&start);
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/refundpk.txt");
+    time(&end);
+    costrefund = difftime(end,start); 
+    cout<<"read refund proving key-time="<<costrefund<<endl;
     // 生成proof
     cout << "Trying to generate refund(user) proof..." << endl;
 

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -174,10 +175,21 @@ func main() {
 
 	RT := GenRT(cmtarray)
 
+	t1 := time.Now()
 	proof := GenDepositsgProof(cmtt, rc, cmtS, values, sn_s, r_s, value_old, r_old, sn, r, RT.Bytes(), cmtB_old, sn_old, cmtB, cmtarray)
 
-	fmt.Println("collect(owner) Proof=====", proof)
+	t2 := time.Now()
+	genCollectproof_time := t2.Sub(t1)
+	fmt.Println("---------------------------------genCollectproof_time---------------------------------")
+	fmt.Println("genCollectproof_time = ", genCollectproof_time)
 
+	// fmt.Println("collect(owner) Proof=====", proof)
+
+	t3 := time.Now()
 	VerifyDepositsgProof(cmtt, sn_s, RT, cmtB_old, sn_old, cmtB, proof)
+	t4 := time.Now()
+	verCollectproof_time := t4.Sub(t3)
+	fmt.Println("---------------------------------verCollectproof_time--------------------------------")
+	fmt.Println("verCollectproof_time = ", verCollectproof_time)
 
 }

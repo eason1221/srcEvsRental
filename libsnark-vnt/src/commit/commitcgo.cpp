@@ -16,6 +16,7 @@
 #include "uint256.h"
 #include "commitcgo.hpp"
 #include "IncrementalMerkleTree.hpp"
+#include <time.h>
 
 using namespace libsnark;
 using namespace libff;
@@ -356,7 +357,13 @@ char *genCommitproof(char *sns_string,
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
     cout << "Trying to read commit proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
+    time_t start, end; 
+    double cost;  
+    time(&start); 
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/commitpk.txt");
+    time(&end);
+    cost = difftime(end,start); 
+    cout<<"read commit proving key-time="<<cost<<endl;
     // 生成proof
     cout << "Trying to generate commit proof..." << endl;
 

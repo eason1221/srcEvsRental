@@ -12,7 +12,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"time"
 	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -118,8 +120,18 @@ func main() {
 	cmtS := GenCMT(subcost, sn_s.Bytes(), r_s.Bytes())
 	ds := GenCMT2(dist, sn_s.Bytes())
 
+	t1 := time.Now()
 	proof := GenDeclareProof(sn_s, r_s, cmtS, r, cmtt, subcost, dist, ds)
+	t2 := time.Now()
+	genDeclareproof_time := t2.Sub(t1)
+	fmt.Println("---------------------------------genDeclareproof_time---------------------------------")
+	fmt.Println("genDeclareproof_time = ", genDeclareproof_time)
 
+	t3 := time.Now()
 	VerifyDeclareProof(ds, cmtt, proof)
+	t4 := time.Now()
+	verDeclareproof_time := t4.Sub(t3)
+	fmt.Println("---------------------------------verDeclareproof_time--------------------------------")
+	fmt.Println("verDeclareproof_time = ", verDeclareproof_time)
 
 }

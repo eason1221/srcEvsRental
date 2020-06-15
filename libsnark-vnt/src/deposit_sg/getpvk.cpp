@@ -14,6 +14,7 @@
 
 #include "Note.h"
 #include "uint256.h"
+#include <time.h>
 
 #include "IncrementalMerkleTree.hpp"
 
@@ -55,7 +56,13 @@ int main()
   deposit_sg_gadget<FieldT> deposit_sg(pb);
   deposit_sg.generate_r1cs_constraints(); // 生成约束
   const r1cs_constraint_system<FieldT> constraint_system = pb.get_constraint_system();
+  time_t start, end; 
+  double cost;  
+  time(&start); 
   r1cs_ppzksnark_keypair<alt_bn128_pp> keypair = r1cs_ppzksnark_generator<alt_bn128_pp>(constraint_system);
+  time(&end);
+  cost = difftime(end,start); 
+  cout<<"generate-pkvk-time="<<cost<<endl;  
   serializeProvingKeyToFile(keypair.pk, "depositsgpk.txt");
   vkToFile(keypair.vk, "depositsgvk.txt");
 }

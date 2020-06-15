@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -161,10 +162,21 @@ func main() {
 
 	RT := GenRT(cmtarray)
 
+	t1 := time.Now()
 	proof := GenRefundProof(value, value_old, sn_old, r_old, sn, r, sn_s, r_s, cmtB_old, cmtB, values, cmtS, cmtarray, RT.Bytes(), fees, cost)
 
-	fmt.Println("refund(user) Proof=====", proof)
+	t2 := time.Now()
+	genRefundproof_time := t2.Sub(t1)
+	fmt.Println("---------------------------------genRefundproof_time---------------------------------")
+	fmt.Println("genRefundproof_time = ", genRefundproof_time)
 
+	// fmt.Println("refund(user) Proof=====", proof)
+
+	t3 := time.Now()
 	VerifyRefundProof(fees, sn_s, RT, cmtB_old, sn_old, cmtB, proof)
+	t4 := time.Now()
+	verRefundproof_time := t4.Sub(t3)
+	fmt.Println("---------------------------------verRefundproof_time--------------------------------")
+	fmt.Println("verRefundproof_time = ", verRefundproof_time)
 
 }

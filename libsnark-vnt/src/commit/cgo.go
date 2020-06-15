@@ -12,7 +12,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"time"
 	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -134,8 +136,18 @@ func main() {
 
 	RT := GenRT(cmtarray)
 
+	t1 := time.Now()
 	proof := GenCommitProof(values, sn_s, r_s, cmtS, RT.Bytes(), cmtarray)
+	t2 := time.Now()
+	genCommitproof_time := t2.Sub(t1)
+	fmt.Println("---------------------------------genCommitproof_time---------------------------------")
+	fmt.Println("genCommitproof_time = ", genCommitproof_time)
 
+	t3 := time.Now()
 	VerifyCommitProof(sn_s, RT.Bytes(), proof)
+	t4 := time.Now()
+	verCommitproof_time := t4.Sub(t3)
+	fmt.Println("---------------------------------verCommitproof_time--------------------------------")
+	fmt.Println("verCommitproof_time = ", verCommitproof_time)
 
 }

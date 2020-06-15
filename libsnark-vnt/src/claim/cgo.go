@@ -12,7 +12,9 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"time"
 	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -137,9 +139,19 @@ func main() {
 
 	ds := GenCMT2(dist, sn_s.Bytes())
 
+	t1 := time.Now()
 	proof := GenClaimProof(ds, sn_s, r_s, cmtS, r, cmtt, subcost, cost, subdist, dist, fees, refundi)
+	t2 := time.Now()
+	genDivideproof_time := t2.Sub(t1)
+	fmt.Println("---------------------------------genDivideproof_time---------------------------------")
+	fmt.Println("genDivideproof_time = ", genDivideproof_time)
 	// fmt.Println("divide(user) proof=<<<<<<<<<<<<<<<<<<<<<<<", proof)
 
+	t3 := time.Now()
 	VerifyClaimProof(ds, cmtS, cmtt, proof)
+	t4 := time.Now()
+	verDivideproof_time := t4.Sub(t3)
+	fmt.Println("---------------------------------verDivideproof_time--------------------------------")
+	fmt.Println("verDivideproof_time = ", verDivideproof_time)
 
 }

@@ -16,6 +16,7 @@
 #include "uint256.h"
 #include "deposit_sgcgo.hpp"
 #include "IncrementalMerkleTree.hpp"
+#include <time.h>
 
 using namespace libsnark;
 using namespace libff;
@@ -388,7 +389,13 @@ char *genDepositsgproof(uint64_t value,
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
     cout << "Trying to read collect(owner) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
+    time_t start, end; 
+    double cost;  
+    time(&start);
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/depositsgpk.txt");
+    time(&end);
+    cost = difftime(end,start); 
+    cout<<"read collect proving key-time="<<cost<<endl;
     // 生成proof
     cout << "Trying to generate collect(owner) proof..." << endl;
 

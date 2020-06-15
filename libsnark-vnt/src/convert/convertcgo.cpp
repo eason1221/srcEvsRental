@@ -13,6 +13,7 @@
 #include "Note.h"
 #include "uint256.h"
 #include "convertcgo.hpp"
+#include <time.h>
 
 using namespace libsnark;
 using namespace libff;
@@ -293,7 +294,13 @@ char *genConvertproof(uint64_t value_A,
     r1cs_ppzksnark_keypair<alt_bn128_pp> keypair;
     cout << "Trying to read cost(user) proving key file..." << endl;
     cout << "Please be patient as this may take about 30 seconds. " << endl;
+    time_t start, end; 
+    double cost;  
+    time(&start);  
     keypair.pk = deserializeProvingKeyFromFile("/usr/local/prfKey/convertpk.txt");
+    time(&end);
+    cost = difftime(end,start); 
+    cout<<"read cost proving key-time="<<cost<<endl;
     // 生成proof
     cout << "Trying to generate cost(user) proof..." << endl;
 
